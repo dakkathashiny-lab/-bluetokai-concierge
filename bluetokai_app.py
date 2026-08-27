@@ -133,6 +133,8 @@ def extract_preferences(text):
     matched_flavors = [f for f in FLAVOR_KEYWORDS if f in text_l]
     if matched_flavors:
         prefs["flavors"] = matched_flavors
+    elif "plain coffee" in text_l or "classic, plain" in text_l:
+        prefs["plain"] = True
 
     # format
     for fmt, keywords in FORMAT_KEYWORDS.items():
@@ -197,6 +199,28 @@ def score_product(row, prefs):
         matched = sum(1 for f in prefs["flavors"] if f in row_flavor_l)
         if matched:
             score += 0.25 * min(1.0, matched / len(prefs["flavors"]))
+    elif prefs.get("plain"):
+        # genuinely reward classic, traditional coffee - not just short text.
+        # Exclude inherently flavored/novelty formats (flavored cold brew cans,
+        # concentrates, variety samplers), which are the OPPOSITE of "plain"
+        # even when their descriptions happen to be short.
+        weight_total += 0.25
+        row_format_l = row["Format"].lower()
+        is_traditional_format = ("ground" in row_format_l or "easy pour" in row_format_l
+                                  or "capsule" in row_format_l)
+        is_novelty = ("cold brew can" in row_format_l or "concentrate" in row_format_l
+                      or "sampler" in row_format_l or "value pack" in row_format_l)
+        num_descriptors = len(row["Flavor_Notes"].split(","))
+        if is_novelty:
+            score += 0.0  # flavored/novelty items don't fit a "plain" request at all
+        elif is_traditional_format and num_descriptors <= 2:
+            score += 0.25
+        elif is_traditional_format and num_descriptors == 3:
+            score += 0.18
+        elif is_traditional_format:
+            score += 0.10
+        else:
+            score += 0.05
 
     if "format" in prefs:
         weight_total += 0.20
@@ -255,6 +279,8 @@ def build_reason_text(prefs):
         parts.append(f"{prefs['roast']} roast")
     if "flavors" in prefs:
         parts.append(f"{', '.join(prefs['flavors'])} notes")
+    elif prefs.get("plain"):
+        parts.append("a plain, classic coffee - no fancy flavor notes")
     if "format" in prefs:
         parts.append(f"{prefs['format']} format")
     if "milk" in prefs:
@@ -366,7 +392,7 @@ with st.expander("🔍 Or answer 4 quick questions", expanded=True):
 
         st.markdown("**2. What flavor do you crave?**")
         sel_flavor = st.radio(
-            "Flavor", ["Any", "Chocolate & Cocoa", "Fruity & Berry", "Nutty & Hazelnut", "Floral & Citrus", "Caramel & Honey"],
+            "Flavor", ["Any", "Plain / Classic (No Specific Flavor)", "Chocolate & Cocoa", "Fruity & Berry", "Nutty & Hazelnut", "Floral & Citrus", "Caramel & Honey"],
             key="filter_flavor", label_visibility="collapsed", horizontal=True)
 
         st.markdown("**3. Black or with milk?**")
@@ -388,8 +414,10 @@ with st.expander("🔍 Or answer 4 quick questions", expanded=True):
             "Chocolate & Cocoa": "chocolate", "Fruity & Berry": "fruity", "Nutty & Hazelnut": "nutty",
             "Floral & Citrus": "citrus", "Caramel & Honey": "caramel",
         }
-        if sel_flavor != "Any":
+        if sel_flavor not in ("Any", "Plain / Classic (No Specific Flavor)"):
             parts.append(flavor_map.get(sel_flavor, sel_flavor.lower()))
+        elif sel_flavor == "Plain / Classic (No Specific Flavor)":
+            parts.append("classic, plain coffee")
         if sel_milk == "With Milk":
             parts.append("with milk")
         elif sel_milk == "Black (No Milk)":
