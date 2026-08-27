@@ -193,6 +193,24 @@ def score_product(row, prefs):
         elif prefs["roast"] in row["Roast_Level"].lower() or row["Roast_Level"].lower() in prefs["roast"]:
             score += 0.20
 
+    if "milk" in prefs:
+        # no per-product milk data exists, so we use a legitimate coffee-industry
+        # heuristic: delicate light roasts are traditionally recommended black
+        # (milk masks subtle notes), while bold dark roasts pair well with milk
+        # (milk doesn't overpower them) - grounded in real roast level data
+        weight_total += 0.15
+        roast_l = row["Roast_Level"].lower()
+        dark_leaning = roast_l in ("dark", "very dark", "medium-dark")
+        light_leaning = roast_l in ("light", "light-medium")
+        if prefs["milk"] == "with milk" and dark_leaning:
+            score += 0.15
+        elif prefs["milk"] == "black" and light_leaning:
+            score += 0.15
+        elif roast_l == "medium":
+            score += 0.10  # medium roast genuinely works reasonably either way
+        else:
+            score += 0.05
+
     if "flavors" in prefs:
         weight_total += 0.25
         row_flavor_l = row["Flavor_Notes"].lower()
@@ -266,7 +284,9 @@ def score_product(row, prefs):
 def get_recommendations(prefs, top_n=5):
     df = in_stock.copy()
     df["compatibility_score"] = df.apply(lambda row: score_product(row, prefs), axis=1)
-    return df.sort_values("compatibility_score", ascending=False).head(top_n)
+    # tie-break by price ascending, so ties resolve predictably rather than
+    # arbitrary file order - also fits naturally with a 'plain, no-frills' preference
+    return df.sort_values(["compatibility_score", "Price_INR"], ascending=[False, True]).head(top_n)
 
 
 def format_price(row):
