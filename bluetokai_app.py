@@ -367,6 +367,7 @@ def process_message(text):
     st.session_state["has_had_response"] = True
     log_interaction(text, prefs, len(matches))
     st.session_state["messages"].append(("assistant", reply, matches.head(5)))
+    st.session_state["scroll_to_latest"] = True
 
     st.session_state.setdefault("search_history", [])
     st.session_state["search_history"].append({
@@ -422,41 +423,7 @@ if "conversation_rated" not in st.session_state:
 if "last_recommended_product" not in st.session_state:
     st.session_state["last_recommended_product"] = None
 
-# --- Sticky input pinned to the top of the screen via CSS (won't drift down) ---
-st.markdown(
-    """
-    <style>
-    .st-key-sticky_chat_box {
-        position: sticky;
-        top: 0;
-        z-index: 999;
-        background-color: #ffffff;
-        padding: 0.75rem 0 0.5rem 0;
-        border-bottom: 1px solid #e6e6e6;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-
-with st.container(key="sticky_chat_box"):
-    with st.form(key="user_message_form", clear_on_submit=True):
-        user_input = st.text_input("Ask me anything about Blue Tokai coffee:",
-                                    placeholder="e.g. Something fruity and light for pour-over")
-        submitted = st.form_submit_button("Send")
-if submitted and user_input:
-    process_message(user_input)
-    st.rerun()
-
-if len(st.session_state["messages"]) == 1:
-    st.write("Try one of these:")
-    cols = st.columns(len(QUICK_START_PROMPTS))
-    for col, prompt in zip(cols, QUICK_START_PROMPTS):
-        if col.button(prompt, use_container_width=True):
-            process_message(prompt)
-            st.rerun()
-
-with st.expander("🔍 Or filter manually", expanded=False):
+with st.expander("🔍 Or filter manually", expanded=True):
     with st.form(key="filter_form"):
         sel_roast = st.selectbox("Roast Level", ["Any"] + sorted(in_stock["Roast_Level"].unique()), key="filter_roast")
         sel_format = st.selectbox("Format", ["Any", "Capsule", "Ground", "Easy Pour", "Cold Brew Bag", "Cold Brew Can", "Concentrate", "Sampler"], key="filter_format")
@@ -472,6 +439,7 @@ with st.expander("🔍 Or filter manually", expanded=False):
         st.session_state["messages"].append(("assistant", reply, matches.head(5)))
         st.session_state["last_recommended_product"] = f"Blue Tokai — {top['Product_Name']}"
         st.session_state["has_had_response"] = True
+        st.session_state["scroll_to_latest"] = True
         log_interaction(f"Manual filter: {reason}", prefs, len(matches))
         st.session_state.setdefault("search_history", [])
         st.session_state["search_history"].append({
@@ -479,56 +447,110 @@ with st.expander("🔍 Or filter manually", expanded=False):
         })
         st.rerun()
 
+
+def render_product_cards(product_rows):
+    top_row = product_rows.iloc[0]
+    other_rows = product_rows.iloc[1:]
+
+    # Highlighted "Our Pick" card - bigger image, clearly set apart
+    with st.container(border=True):
+        pick_img_col, pick_info_col = st.columns([1, 2])
+        with pick_img_col:
+            if pd.notna(top_row.get("Image_URL")):
+                st.image(top_row["Image_URL"], use_container_width=True)
+        with pick_info_col:
+            st.markdown(f"### ⭐ Our Pick: {top_row['Product_Name']}")
+            st.markdown(
+                f"**{top_row['Roast_Level']} roast** · {top_row['Format'].split('(')[0].strip()}  \n"
+                f"Flavor: {top_row['Flavor_Notes']}  \n"
+                f"**{format_price(top_row)}** · {top_row['compatibility_score']}% match"
+            )
+
+    # Plain, smaller cards for the remaining options
+    if not other_rows.empty:
+        st.caption("Other options:")
+        cols = st.columns(min(len(other_rows), 4))
+        for col, (_, prow) in zip(cols, other_rows.iterrows()):
+            with col:
+                if pd.notna(prow.get("Image_URL")):
+                    st.image(prow["Image_URL"], use_container_width=True)
+                st.caption(f"{prow['Product_Name']}\n{format_price(prow)}\n{prow['compatibility_score']}% match")
+
+
+total_messages = len(st.session_state["messages"])
+for idx, (role, content, product_rows) in enumerate(st.session_state["messages"]):
+    if idx == total_messages - 1:
+        st.markdown('<div id="latest-response-anchor"></div>', unsafe_allow_html=True)
+    with st.chat_message(role):
+        st.markdown(content)
+        if product_rows is not None and not product_rows.empty:
+            render_product_cards(product_rows)
+
+if st.session_state.get("scroll_to_latest"):
+    st.session_state["scroll_to_latest"] = False
+    st.markdown("""
+        <script>
+        (function() {
+            function getDoc() {
+                try { if (window.parent && window.parent.document) return window.parent.document; } catch (e) {}
+                return document;
+            }
+            function tryScroll(attemptsLeft) {
+                const doc = getDoc();
+                const anchor = doc.getElementById("latest-response-anchor");
+                if (anchor) {
+                    anchor.scrollIntoView({behavior: "smooth", block: "start"});
+                    return;
+                }
+                if (attemptsLeft > 0) {
+                    setTimeout(function() { tryScroll(attemptsLeft - 1); }, 200);
+                } else {
+                    try {
+                        const win = window.parent || window;
+                        win.scrollTo({top: win.document.body.scrollHeight, behavior: "smooth"});
+                    } catch (e) {}
+                }
+            }
+            tryScroll(10);
+        })();
+        </script>
+    """, unsafe_allow_html=True)
+
+# quick-start buttons only shown before the user has typed anything, so
+# they don't clutter an already-active conversation
+if len(st.session_state["messages"]) == 1:
+    st.write("Try one of these:")
+    cols = st.columns(len(QUICK_START_PROMPTS))
+    for col, prompt in zip(cols, QUICK_START_PROMPTS):
+        if col.button(prompt, use_container_width=True):
+            process_message(prompt)
+            st.rerun()
+
+with st.form(key="user_message_form", clear_on_submit=True):
+    user_input = st.text_input("Ask me anything about Blue Tokai coffee:",
+                                placeholder="e.g. Something fruity and light for pour-over")
+    submitted = st.form_submit_button("Send")
+if submitted and user_input:
+    process_message(user_input)
+    st.rerun()
+
+# collapsible search history - positioned AFTER the input box (not before),
+# so it never blocks quick access to asking your next question.
+history = st.session_state.get("search_history", [])
+past_searches = history[:-1] if len(history) > 1 else []
+if past_searches:
+    with st.expander(f"📜 Search History ({len(past_searches)} earlier search{'es' if len(past_searches) != 1 else ''})"):
+        for i, entry in enumerate(reversed(past_searches), start=1):
+            st.markdown(f"**{i}. You asked:** {entry['query']}")
+            st.markdown(entry["reply"])
+            if entry["products"] is not None and not entry["products"].empty:
+                render_product_cards(entry["products"])
+            st.divider()
+
 st.divider()
-st.subheader("📋 Recommendations")
 
-# Newest result first, directly under the sticky input - no scrolling needed.
-# Older turns (2nd, 3rd, ...) stay listed below, so full history is preserved.
-msgs = st.session_state["messages"]
-turns = []
-i = 0
-if msgs and msgs[0][1] == WELCOME_MESSAGE and msgs[0][2] is None:
-    turns.append([msgs[0]])
-    i = 1
-while i < len(msgs):
-    if i + 1 < len(msgs):
-        turns.append([msgs[i], msgs[i + 1]])
-        i += 2
-    else:
-        turns.append([msgs[i]])
-        i += 1
-
-for turn in reversed(turns):
-    for role, content, product_rows in turn:
-        with st.chat_message(role):
-            st.markdown(content)
-            if product_rows is not None and not product_rows.empty:
-                top_row = product_rows.iloc[0]
-                other_rows = product_rows.iloc[1:]
-
-                # Highlighted "Our Pick" card - bigger image, clearly set apart
-                with st.container(border=True):
-                    pick_img_col, pick_info_col = st.columns([1, 2])
-                    with pick_img_col:
-                        if pd.notna(top_row.get("Image_URL")):
-                            st.image(top_row["Image_URL"], use_container_width=True)
-                    with pick_info_col:
-                        st.markdown(f"### ⭐ Our Pick: {top_row['Product_Name']}")
-                        st.markdown(
-                            f"**{top_row['Roast_Level']} roast** · {top_row['Format'].split('(')[0].strip()}  \n"
-                            f"Flavor: {top_row['Flavor_Notes']}  \n"
-                            f"**{format_price(top_row)}** · {top_row['compatibility_score']}% match"
-                        )
-
-                # Plain, smaller cards for the remaining options
-                if not other_rows.empty:
-                    st.caption("Other options:")
-                    cols = st.columns(min(len(other_rows), 4))
-                    for col, (_, prow) in zip(cols, other_rows.iterrows()):
-                        with col:
-                            if pd.notna(prow.get("Image_URL")):
-                                st.image(prow["Image_URL"], use_container_width=True)
-                            st.caption(f"{prow['Product_Name']}\n{format_price(prow)}\n{prow['compatibility_score']}% match")
+if st.session_state["last_recommended_product"]:
+    st.info("👆 **Your recommendation is above this line** — scroll up to see it if you landed here first.")
 
 if st.session_state["last_recommended_product"] and not st.session_state["conversation_rated"]:
     st.markdown(f"I hope *{st.session_state['last_recommended_product']}* is exactly what you were looking for! ☕")
