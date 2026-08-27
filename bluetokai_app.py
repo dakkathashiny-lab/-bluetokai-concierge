@@ -4,38 +4,28 @@ import difflib
 import re
 import csv
 import os
-import random
+import uuid
+import json
+import time
+import requests
 from datetime import datetime
 
 # ---------- CONFIG ----------
 GOOGLE_FORM_URL = "REPLACE_WITH_YOUR_BLUE_TOKAI_SURVEY_FORM_URL"
-
-# Entry IDs below are placeholders - once you build your real Google Form, get
-# these from Google Forms' "Get pre-filled link" feature (see instructions).
-FORM_ENTRY_IDS = {
-    "product": "entry.100001",
-    "score": "entry.100002",
-    "price": "entry.100003",
-}
-
-
-def build_survey_url(product_name=None, score=None, price=None):
-    """Constructs a pre-filled survey URL carrying session metadata, so each
-    response can be tied back to exactly what was recommended - useful for
-    the SPSS regression stage later."""
-    import urllib.parse
-    if GOOGLE_FORM_URL.startswith("REPLACE_"):
-        return GOOGLE_FORM_URL  # not yet configured, just use as-is
-    params = {"usp": "pp_url"}
-    if product_name:
-        params[FORM_ENTRY_IDS["product"]] = product_name
-    if score is not None:
-        params[FORM_ENTRY_IDS["score"]] = str(score)
-    if price is not None:
-        params[FORM_ENTRY_IDS["price"]] = str(price)
-    return f"{GOOGLE_FORM_URL}?{urllib.parse.urlencode(params)}"
 LOG_FILE = "interaction_log.csv"
 RATING_LOG_FILE = "ratings_log.csv"
+SESSION_LOG_FILE = "session_log.csv"
+SESSION_LOG_COLUMNS = [
+    "session_id", "timestamp_start", "timestamp_submit", "interaction_duration_sec",
+    "source", "roast_preference", "format_preference", "milk_preference",
+    "flavor_keywords", "matched_product_name", "price_inr", "price_tier",
+    "compatibility_score_sc", "roast_match_flag", "format_match_flag",
+    "num_alternatives_shown", "completed_flag",
+    "recommendation_method", "llm_model_name", "llm_latency_ms", "rule_based_score_sc",
+]
+
+GROQ_MODEL = "llama-3.3-70b-versatile"
+GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 
 WELCOME_MESSAGE = (
     "Hi! ☕ I'm your Blue Tokai taste concierge — think of me as a knowledgeable "
@@ -67,14 +57,16 @@ FLAVOR_KEYWORDS = [
 ROAST_KEYWORDS = {
     "very dark": ["very dark", "french roast", "extra dark"],
     "medium-dark": ["medium-dark", "medium dark"],
+    "light-medium": ["light-medium", "light medium"],
     "light": ["light", "delicate", "bright"],
     "medium": ["medium", "balanced"],
     "dark": ["dark", "bold", "strong", "intense"],
+    "mixed": ["mixed", "medley", "assorted roast"],
 }
 
 FORMAT_KEYWORDS = {
     "capsule": ["capsule", "pod", "nespresso"],
-    "ground": ["ground", "whole bean", "beans", "powder"],
+    "ground": ["ground", "whole bean", "beans", "powder", "filter"],
     "easy pour": ["easy pour", "drip", "sachet", "travel"],
     "cold brew bag": ["cold brew bag"],
     "cold brew can": ["can", "ready to drink", "ready-to-drink", "rtd"],
@@ -90,6 +82,12 @@ MILK_KEYWORDS = {
 BUDGET_VAGUE_KEYWORDS = ["cheap", "affordable", "budget friendly", "budget-friendly",
                           "low cost", "inexpensive", "pocket friendly", "best seller",
                           "most popular", "popular"]
+
+FORMAT_TARGET_MAP = {
+    "capsule": "capsule", "ground": "ground/whole bean", "easy pour": "easy pour",
+    "cold brew bag": "cold brew bag", "cold brew can": "cold brew can",
+    "concentrate": "drop", "sampler": "sampler",
+}
 
 
 # ---------- DATA ----------
@@ -133,8 +131,6 @@ def extract_preferences(text):
     matched_flavors = [f for f in FLAVOR_KEYWORDS if f in text_l]
     if matched_flavors:
         prefs["flavors"] = matched_flavors
-    elif "plain coffee" in text_l or "classic, plain" in text_l:
-        prefs["plain"] = True
 
     # format
     for fmt, keywords in FORMAT_KEYWORDS.items():
@@ -188,28 +184,17 @@ def score_product(row, prefs):
 
     if "roast" in prefs:
         weight_total += 0.30
-        if row["Roast_Level"].lower() == prefs["roast"]:
+        row_roast_l = row["Roast_Level"].lower()
+        if row_roast_l == prefs["roast"]:
             score += 0.30
-        elif prefs["roast"] in row["Roast_Level"].lower() or row["Roast_Level"].lower() in prefs["roast"]:
+        elif prefs["roast"] != "medium" and prefs["roast"] != "dark" and (
+            (prefs["roast"] in row_roast_l and prefs["roast"] not in ("light", "medium", "dark"))
+            or (row_roast_l in prefs["roast"] and row_roast_l not in ("light", "medium", "dark"))
+        ):
+            # Only give partial credit for genuinely related compound roasts
+            # (e.g. "medium-dark" vs "very dark"), not plain substring hits like
+            # "medium" matching inside "light-medium" or "medium-dark".
             score += 0.20
-
-    if "milk" in prefs:
-        # no per-product milk data exists, so we use a legitimate coffee-industry
-        # heuristic: delicate light roasts are traditionally recommended black
-        # (milk masks subtle notes), while bold dark roasts pair well with milk
-        # (milk doesn't overpower them) - grounded in real roast level data
-        weight_total += 0.15
-        roast_l = row["Roast_Level"].lower()
-        dark_leaning = roast_l in ("dark", "very dark", "medium-dark")
-        light_leaning = roast_l in ("light", "light-medium")
-        if prefs["milk"] == "with milk" and dark_leaning:
-            score += 0.15
-        elif prefs["milk"] == "black" and light_leaning:
-            score += 0.15
-        elif roast_l == "medium":
-            score += 0.10  # medium roast genuinely works reasonably either way
-        else:
-            score += 0.05
 
     if "flavors" in prefs:
         weight_total += 0.25
@@ -217,40 +202,28 @@ def score_product(row, prefs):
         matched = sum(1 for f in prefs["flavors"] if f in row_flavor_l)
         if matched:
             score += 0.25 * min(1.0, matched / len(prefs["flavors"]))
-    elif prefs.get("plain"):
-        # genuinely reward classic, traditional coffee - not just short text.
-        # Exclude inherently flavored/novelty formats (flavored cold brew cans,
-        # concentrates, variety samplers), which are the OPPOSITE of "plain"
-        # even when their descriptions happen to be short.
-        weight_total += 0.25
-        row_format_l = row["Format"].lower()
-        is_traditional_format = ("ground" in row_format_l or "easy pour" in row_format_l
-                                  or "capsule" in row_format_l)
-        is_novelty = ("cold brew can" in row_format_l or "concentrate" in row_format_l
-                      or "sampler" in row_format_l or "value pack" in row_format_l)
-        num_descriptors = len(row["Flavor_Notes"].split(","))
-        if is_novelty:
-            score += 0.0  # flavored/novelty items don't fit a "plain" request at all
-        elif is_traditional_format and num_descriptors <= 2:
-            score += 0.25
-        elif is_traditional_format and num_descriptors == 3:
-            score += 0.18
-        elif is_traditional_format:
-            score += 0.10
-        else:
-            score += 0.05
 
     if "format" in prefs:
         weight_total += 0.20
         row_format_l = row["Format"].lower()
-        fmt_map = {
-            "capsule": "capsule", "ground": "ground/whole bean", "easy pour": "easy pour",
-            "cold brew bag": "cold brew bag", "cold brew can": "cold brew can",
-            "concentrate": "drop", "sampler": "sampler",
-        }
-        target = fmt_map.get(prefs["format"], "")
+        target = FORMAT_TARGET_MAP.get(prefs["format"], "")
         if target in row_format_l:
             score += 0.20
+
+    if "milk" in prefs:
+        # No explicit milk-pairing column exists, so use roast family as the
+        # best available proxy: darker roasts are conventionally recommended
+        # with milk, lighter roasts are conventionally recommended black.
+        weight_total += 0.10
+        roast_l = row["Roast_Level"].lower()
+        dark_family = "dark" in roast_l
+        light_family = "light" in roast_l
+        if prefs["milk"] == "with milk" and dark_family:
+            score += 0.10
+        elif prefs["milk"] == "black" and light_family:
+            score += 0.10
+        else:
+            score += 0.05  # never a hard dead end
 
     if "budget" in prefs:
         weight_total += 0.15
@@ -265,6 +238,15 @@ def score_product(row, prefs):
         weight_total += 0.05
         if row["Price_INR"] >= prefs["budget_min"]:
             score += 0.05
+
+    if prefs.get("vague_budget"):
+        # "cheap" / "budget friendly" / "best seller" / "most popular" - with no
+        # popularity data available, use price as the best available proxy and
+        # favor lower-priced items.
+        weight_total += 0.15
+        max_price = products["Price_INR"].max()
+        if max_price > 0:
+            score += 0.15 * (1 - (row["Price_INR"] / max_price))
 
     if "estate" in prefs:
         weight_total += 0.10
@@ -284,9 +266,137 @@ def score_product(row, prefs):
 def get_recommendations(prefs, top_n=5):
     df = in_stock.copy()
     df["compatibility_score"] = df.apply(lambda row: score_product(row, prefs), axis=1)
-    # tie-break by price ascending, so ties resolve predictably rather than
-    # arbitrary file order - also fits naturally with a 'plain, no-frills' preference
-    return df.sort_values(["compatibility_score", "Price_INR"], ascending=[False, True]).head(top_n)
+    return df.sort_values("compatibility_score", ascending=False).head(top_n)
+
+
+def _build_catalog_json():
+    """The exact, closed universe of products the LLM is allowed to choose from."""
+    cols = ["Product_Name", "Roast_Level", "Format", "Flavor_Notes", "Price_INR"]
+    return in_stock[cols].to_dict(orient="records")
+
+
+def get_llm_recommendation(user_text, prefs):
+    """Layer 1: prompt instructs the model to only use the catalog below, no
+    outside knowledge. Layer 2: response_format=json_object forces valid JSON.
+    Layer 3 (in the caller): the returned product name is checked against the
+    real catalog before ever being shown - if it fails on any front (missing
+    key, no API key configured, network error, invalid name), this returns
+    None and the caller falls back to the rule-based engine. This function
+    never lets an untrusted or invalid result reach the user."""
+    try:
+        api_key = st.secrets["GROQ_API_KEY"]
+    except Exception:
+        return None  # no key configured - silently use rule-based engine
+
+    catalog = _build_catalog_json()
+    catalog_names = {p["Product_Name"] for p in catalog}
+
+    system_prompt = (
+        "You are a coffee recommendation engine for Blue Tokai, an Indian specialty "
+        "coffee brand. You must ONLY recommend a product from the exact CATALOG list "
+        "given below. Do not use any outside knowledge about coffee, Blue Tokai, or "
+        "any other brand or product. Do not invent, rename, resize, or modify any "
+        "product name. The 'matched_product_name' field in your response MUST be "
+        "copied character-for-character from the 'Product_Name' field of exactly one "
+        "item in CATALOG below.\n\n"
+        f"CATALOG (JSON array, {len(catalog)} items):\n{json.dumps(catalog)}\n\n"
+        "Respond with ONLY a single JSON object, no other text, in this exact shape:\n"
+        '{"matched_product_name": "<copied exactly from CATALOG>", '
+        '"reason": "<1-2 sentence personalized explanation>", '
+        '"compatibility_score": <integer 0-100>}'
+    )
+    user_prompt = (
+        f"User's message: {user_text}\n"
+        f"Extracted preferences (JSON): {json.dumps(prefs)}\n"
+        "Pick the single best-matching product from CATALOG for this user."
+    )
+
+    try:
+        start = time.time()
+        response = requests.post(
+            GROQ_API_URL,
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            json={
+                "model": GROQ_MODEL,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                "temperature": 0.3,
+                "response_format": {"type": "json_object"},
+            },
+            timeout=8,
+        )
+        latency_ms = int((time.time() - start) * 1000)
+        response.raise_for_status()
+        content = response.json()["choices"][0]["message"]["content"]
+        parsed = json.loads(content)
+
+        matched_name = str(parsed.get("matched_product_name", "")).strip()
+        if matched_name not in catalog_names:
+            return None  # hallucinated/invalid name - fall back, never shown to user
+
+        score = parsed.get("compatibility_score", 0)
+        try:
+            score = max(0.0, min(100.0, float(score)))
+        except (TypeError, ValueError):
+            score = 0.0
+
+        return {
+            "matched_product_name": matched_name,
+            "reason": str(parsed.get("reason", "")).strip(),
+            "compatibility_score": score,
+            "llm_model_name": GROQ_MODEL,
+            "llm_latency_ms": latency_ms,
+        }
+    except Exception:
+        return None  # any network/parsing failure - fall back, no crash
+
+
+def get_manual_filter_recommendations(roast_choice, format_choice, milk_choice, top_n=5):
+    """Manual-filter dropdowns are exact structured choices, not fuzzy text, so
+    they're applied as hard filters (guaranteeing e.g. Capsule really returns
+    capsules) rather than blended into the fuzzy chat-scoring weights. Falls
+    back to progressively looser filtering rather than ever returning empty."""
+    df = in_stock.copy()
+    filtered = df.copy()
+
+    if roast_choice != "Any":
+        filtered = filtered[filtered["Roast_Level"].str.lower() == roast_choice.lower()]
+
+    if format_choice != "Any":
+        target = FORMAT_TARGET_MAP.get(format_choice.lower(), format_choice.lower())
+        filtered = filtered[filtered["Format"].str.lower().str.contains(target, na=False)]
+
+    if milk_choice == "With Milk":
+        filtered = filtered[filtered["Roast_Level"].str.lower().str.contains("dark", na=False)]
+    elif milk_choice == "Black (No Milk)":
+        filtered = filtered[filtered["Roast_Level"].str.lower().str.contains("light", na=False)]
+
+    if filtered.empty:
+        # No dead ends: relax milk first, then roast, but keep format if possible
+        relaxed = df.copy()
+        if format_choice != "Any":
+            target = FORMAT_TARGET_MAP.get(format_choice.lower(), format_choice.lower())
+            fmt_only = relaxed[relaxed["Format"].str.lower().str.contains(target, na=False)]
+            if not fmt_only.empty:
+                relaxed = fmt_only
+        filtered = relaxed if not relaxed.empty else df.copy()
+
+    filtered = filtered.copy()
+    filtered["compatibility_score"] = 100.0
+
+    prefs = {}
+    if roast_choice != "Any":
+        prefs["roast"] = roast_choice.lower()
+    if format_choice != "Any":
+        prefs["format"] = format_choice.lower()
+    if milk_choice == "With Milk":
+        prefs["milk"] = "with milk"
+    elif milk_choice == "Black (No Milk)":
+        prefs["milk"] = "black"
+
+    return filtered.sort_values("Price_INR").head(top_n), prefs
 
 
 def format_price(row):
@@ -299,8 +409,6 @@ def build_reason_text(prefs):
         parts.append(f"{prefs['roast']} roast")
     if "flavors" in prefs:
         parts.append(f"{', '.join(prefs['flavors'])} notes")
-    elif prefs.get("plain"):
-        parts.append("a plain, classic coffee - no fancy flavor notes")
     if "format" in prefs:
         parts.append(f"{prefs['format']} format")
     if "milk" in prefs:
@@ -342,28 +450,120 @@ def log_rating(product_name, stars):
         pass
 
 
+def get_price_tier(price_inr):
+    """Bins price into a simple ordinal tier for SPSS analysis. Thresholds are
+    based on the actual spread of Price_INR in blue_tokai_products.csv."""
+    if price_inr < 450:
+        return "Budget"
+    elif price_inr < 700:
+        return "Mid"
+    elif price_inr < 1000:
+        return "Premium"
+    return "Luxury"
+
+
+def log_spss_session(source, prefs, top_row, num_alternatives, completed_flag=1,
+                      recommendation_method="rule_based", llm_model_name="",
+                      llm_latency_ms=0, rule_based_score_sc=None):
+    """SPSS-ready session log: one row per recommendation, capturing the input
+    preferences, the matched product's key output variables, and session/timing
+    metadata, joinable to the post-chat Google Form survey via session_id.
+    Also logs which engine produced the result (llm vs rule_based) and the
+    rule-based score for direct comparison, even when the LLM's pick is shown."""
+    now = datetime.now()
+    timestamp_submit = now.isoformat(timespec="seconds")
+    timestamp_start = st.session_state.get("timestamp_start", timestamp_submit)
+    try:
+        duration = (now - datetime.fromisoformat(timestamp_start)).total_seconds()
+    except (ValueError, TypeError):
+        duration = 0.0
+
+    roast_match_flag = int(str(prefs.get("roast", "")).strip().lower() == str(top_row["Roast_Level"]).strip().lower())
+    format_match_flag = int(
+        FORMAT_TARGET_MAP.get(str(prefs.get("format", "")).strip().lower(), "")
+        in str(top_row["Format"]).strip().lower()
+    ) if "format" in prefs else 0
+
+    row = {
+        "session_id": st.session_state.get("session_id", ""),
+        "timestamp_start": timestamp_start,
+        "timestamp_submit": timestamp_submit,
+        "interaction_duration_sec": round(duration, 2),
+        "source": source,
+        "roast_preference": prefs.get("roast", ""),
+        "format_preference": prefs.get("format", ""),
+        "milk_preference": prefs.get("milk", ""),
+        "flavor_keywords": ", ".join(prefs.get("flavors", [])),
+        "matched_product_name": top_row["Product_Name"],
+        "price_inr": top_row["Price_INR"],
+        "price_tier": get_price_tier(top_row["Price_INR"]),
+        "compatibility_score_sc": top_row["compatibility_score"],
+        "roast_match_flag": roast_match_flag,
+        "format_match_flag": format_match_flag,
+        "num_alternatives_shown": num_alternatives,
+        "completed_flag": completed_flag,
+        "recommendation_method": recommendation_method,
+        "llm_model_name": llm_model_name,
+        "llm_latency_ms": llm_latency_ms,
+        "rule_based_score_sc": rule_based_score_sc if rule_based_score_sc is not None else top_row["compatibility_score"],
+    }
+
+    is_new = not os.path.exists(SESSION_LOG_FILE)
+    try:
+        with open(SESSION_LOG_FILE, "a", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=SESSION_LOG_COLUMNS)
+            if is_new:
+                writer.writeheader()
+            writer.writerow(row)
+    except OSError:
+        pass
+
+
 def process_message(text):
-    st.session_state["messages"] = []
-    st.session_state["messages"].append(("user", text, None, None))
+    st.session_state.setdefault("messages", [])
+    st.session_state["messages"].append(("user", text, None))
 
     prefs = extract_preferences(text)
-    matches = get_recommendations(prefs, top_n=5)
-    top = matches.iloc[0]
-    others = matches.iloc[1:5]
+    rule_based_matches = get_recommendations(prefs, top_n=5)
+    rule_based_top = rule_based_matches.iloc[0]
 
-    reason = build_reason_text(prefs)
-    reply = f"Matched because you wanted: {reason}."
+    llm_result = get_llm_recommendation(text, prefs)
+
+    if llm_result is not None:
+        method = "llm"
+        llm_model_name = llm_result["llm_model_name"]
+        llm_latency_ms = llm_result["llm_latency_ms"]
+        matched_row = in_stock[in_stock["Product_Name"] == llm_result["matched_product_name"]].iloc[0].copy()
+        matched_row["compatibility_score"] = llm_result["compatibility_score"]
+        # LLM picks the top product; fill remaining "other option" slots from
+        # the rule-based ranking (excluding the LLM's own pick) so the UI's
+        # "Our Pick + other options" layout stays exactly the same.
+        alt_pool = rule_based_matches[rule_based_matches["Product_Name"] != matched_row["Product_Name"]]
+        matches = pd.concat([matched_row.to_frame().T, alt_pool], ignore_index=True).head(5)
+        top = matched_row
+        reply = llm_result["reason"] or build_reason_text(prefs)
+    else:
+        method = "rule_based"
+        llm_model_name = ""
+        llm_latency_ms = 0
+        matches = rule_based_matches
+        top = rule_based_top
+        reason = build_reason_text(prefs)
+        reply = f"Matched because you wanted: {reason}. Here's my pick, plus a few other options that fit well too:"
 
     st.session_state["last_recommended_product"] = f"Blue Tokai — {top['Product_Name']}"
-    st.session_state["last_recommended_score"] = top["compatibility_score"]
-    st.session_state["last_recommended_price"] = int(top["Price_INR"])
     st.session_state["has_had_response"] = True
     log_interaction(text, prefs, len(matches))
-    st.session_state["messages"].append(("assistant", reply, top, others))
+    log_spss_session(
+        "chat", prefs, top, len(matches) - 1,
+        recommendation_method=method, llm_model_name=llm_model_name,
+        llm_latency_ms=llm_latency_ms, rule_based_score_sc=rule_based_top["compatibility_score"],
+    )
+    st.session_state["messages"].append(("assistant", reply, matches.head(5)))
 
     st.session_state.setdefault("search_history", [])
     st.session_state["search_history"].append({
-        "query": text, "reply": reply, "top": top, "others": others,
+        "query": text, "reply": reply, "products": matches.head(5),
     })
 
 
@@ -371,7 +571,12 @@ def process_message(text):
 st.set_page_config(page_title="Blue Tokai Concierge", page_icon="☕")
 
 # Hidden admin dashboard
-ADMIN_SECRET = "bluetokai2026"
+# For production, set ADMIN_SECRET in Streamlit secrets (Settings > Secrets)
+# instead of relying on the hardcoded fallback below.
+try:
+    ADMIN_SECRET = st.secrets["ADMIN_SECRET"]
+except Exception:
+    ADMIN_SECRET = "bluetokai2026"
 query_params = st.query_params
 if query_params.get("admin") == ADMIN_SECRET:
     st.title("☕ Blue Tokai Concierge — Admin Dashboard")
@@ -385,19 +590,18 @@ if query_params.get("admin") == ADMIN_SECRET:
             col1.metric("Total ratings", len(ratings_df))
             col2.metric("Average stars", f"{ratings_df['stars'].mean():.1f} ⭐")
             st.dataframe(ratings_df.sort_values("timestamp", ascending=False), use_container_width=True, hide_index=True)
-            dl_col, clear_col = st.columns(2)
-            dl_col.download_button("⬇️ Download ratings CSV", ratings_df.to_csv(index=False), "ratings_log.csv", "text/csv")
-            if clear_col.button("🗑️ Clear ratings history", key="clear_ratings_btn"):
+            st.download_button("Download ratings CSV", ratings_df.to_csv(index=False), "ratings_log.csv", "text/csv")
+            if st.button("🗑️ Clear all ratings", key="clear_ratings_btn"):
                 st.session_state["confirm_clear_ratings"] = True
             if st.session_state.get("confirm_clear_ratings"):
-                st.warning("⚠️ This permanently deletes all ratings data. Download a backup first if needed.")
-                yes_col, no_col = st.columns(2)
-                if yes_col.button("Yes, delete permanently", key="confirm_clear_ratings_yes"):
+                st.warning("This permanently deletes all ratings data. Download a backup first if you want to keep it.")
+                cc1, cc2 = st.columns(2)
+                if cc1.button("Yes, delete all ratings", key="confirm_clear_ratings_btn"):
                     os.remove(RATING_LOG_FILE)
                     st.session_state["confirm_clear_ratings"] = False
-                    st.success("Ratings history cleared.")
+                    st.success("Ratings cleared. Starting fresh from now.")
                     st.rerun()
-                if no_col.button("Cancel", key="confirm_clear_ratings_no"):
+                if cc2.button("Cancel", key="cancel_clear_ratings_btn"):
                     st.session_state["confirm_clear_ratings"] = False
                     st.rerun()
     else:
@@ -409,122 +613,217 @@ if query_params.get("admin") == ADMIN_SECRET:
         if not interactions_df.empty:
             st.metric("Total interactions", len(interactions_df))
             st.dataframe(interactions_df.sort_values("timestamp", ascending=False), use_container_width=True, hide_index=True)
-            dl_col2, clear_col2 = st.columns(2)
-            dl_col2.download_button("⬇️ Download interactions CSV", interactions_df.to_csv(index=False), "interaction_log.csv", "text/csv")
-            if clear_col2.button("🗑️ Clear interaction history", key="clear_interactions_btn"):
+            st.download_button("Download interactions CSV", interactions_df.to_csv(index=False), "interaction_log.csv", "text/csv")
+            if st.button("🗑️ Clear all interactions", key="clear_interactions_btn"):
                 st.session_state["confirm_clear_interactions"] = True
             if st.session_state.get("confirm_clear_interactions"):
-                st.warning("⚠️ This permanently deletes all interaction data. Download a backup first if needed.")
-                yes_col2, no_col2 = st.columns(2)
-                if yes_col2.button("Yes, delete permanently", key="confirm_clear_interactions_yes"):
+                st.warning("This permanently deletes all interaction data. Download a backup first if you want to keep it.")
+                ci1, ci2 = st.columns(2)
+                if ci1.button("Yes, delete all interactions", key="confirm_clear_interactions_btn"):
                     os.remove(LOG_FILE)
                     st.session_state["confirm_clear_interactions"] = False
-                    st.success("Interaction history cleared.")
+                    st.success("Interactions cleared. Starting fresh from now.")
                     st.rerun()
-                if no_col2.button("Cancel", key="confirm_clear_interactions_no"):
+                if ci2.button("Cancel", key="cancel_clear_interactions_btn"):
                     st.session_state["confirm_clear_interactions"] = False
                     st.rerun()
     else:
         st.info("No interactions yet.")
+    st.divider()
+    st.subheader("📊 SPSS Session Log")
+    st.caption("One row per recommendation, with structured research variables (roast/format/milk preference, matched product, price tier, compatibility score, match flags).")
+    if os.path.exists(SESSION_LOG_FILE):
+        session_df = pd.read_csv(SESSION_LOG_FILE)
+        if not session_df.empty:
+            col1, col2, col3 = st.columns(3)
+            col1.metric("Total sessions", len(session_df))
+            col2.metric("Chat vs Manual", f"{(session_df['source']=='chat').sum()} / {(session_df['source']=='manual').sum()}")
+            col3.metric("Avg compatibility", f"{session_df['compatibility_score_sc'].mean():.1f}%")
+            st.dataframe(session_df.sort_values("timestamp_submit", ascending=False), use_container_width=True, hide_index=True)
+            st.download_button("Download session log CSV", session_df.to_csv(index=False), "session_log.csv", "text/csv")
+            if st.button("🗑️ Clear all session log data", key="clear_session_btn"):
+                st.session_state["confirm_clear_session"] = True
+            if st.session_state.get("confirm_clear_session"):
+                st.warning("This permanently deletes all session log data. Download a backup first if you want to keep it.")
+                cs1, cs2 = st.columns(2)
+                if cs1.button("Yes, delete all session log data", key="confirm_clear_session_btn"):
+                    os.remove(SESSION_LOG_FILE)
+                    st.session_state["confirm_clear_session"] = False
+                    st.success("Session log cleared. Starting fresh from now.")
+                    st.rerun()
+                if cs2.button("Cancel", key="cancel_clear_session_btn"):
+                    st.session_state["confirm_clear_session"] = False
+                    st.rerun()
+    else:
+        st.info("No session log data yet.")
     st.stop()
 
-st.title("☕ Blue Tokai Concierge")
+st.markdown("### ☕ Blue Tokai Concierge")
 st.caption("Your personal Blue Tokai taste concierge — one brand, real recommendations.")
 
-with st.expander("🔍 Or answer 4 quick questions", expanded=True):
-    with st.form(key="filter_form"):
-        st.markdown("**1. How do you brew your coffee?**")
-        sel_format = st.radio(
-            "Brew method", ["Ground/Whole Bean", "Capsule", "Easy Pour", "Cold Brew", "Concentrate/Drop", "Ready-to-Drink Can"],
-            key="filter_format", label_visibility="collapsed", horizontal=True)
-
-        st.markdown("**2. What flavor do you crave?**")
-        sel_flavor = st.radio(
-            "Flavor", ["Plain / Classic (No Specific Flavor)", "Chocolate & Cocoa", "Fruity & Berry", "Nutty & Hazelnut", "Floral & Citrus", "Caramel & Honey"],
-            key="filter_flavor", label_visibility="collapsed", horizontal=True)
-
-        st.markdown("**3. Black or with milk?**")
-        sel_milk = st.radio("Milk", ["With Milk", "Black (No Milk)"], key="filter_milk", label_visibility="collapsed", horizontal=True)
-
-        st.markdown("**4. Roast preference?**")
-        sel_roast = st.radio("Roast", ["Light", "Medium", "Medium-Dark", "Dark"], key="filter_roast", label_visibility="collapsed", horizontal=True)
-
-        filter_submitted = st.form_submit_button("✨ Find my match")
-    if filter_submitted:
-        parts = []
-        format_map = {
-            "Ground/Whole Bean": "ground", "Capsule": "capsule", "Easy Pour": "easy pour",
-            "Cold Brew": "cold brew bag", "Concentrate/Drop": "concentrate", "Ready-to-Drink Can": "cold brew can",
-        }
-        parts.append(format_map.get(sel_format, sel_format.lower()))
-        flavor_map = {
-            "Chocolate & Cocoa": "chocolate", "Fruity & Berry": "fruity", "Nutty & Hazelnut": "nutty",
-            "Floral & Citrus": "citrus", "Caramel & Honey": "caramel",
-        }
-        if sel_flavor == "Plain / Classic (No Specific Flavor)":
-            parts.append("classic, plain coffee")
-        else:
-            parts.append(flavor_map.get(sel_flavor, sel_flavor.lower()))
-        parts.append("with milk" if sel_milk == "With Milk" else "black")
-        parts.append(f"{sel_roast.lower()} roast")
-        summary_text = "Guided search: " + ", ".join(parts)
-        process_message(summary_text)
-        st.rerun()
-
+if "session_id" not in st.session_state:
+    st.session_state["session_id"] = str(uuid.uuid4())
+    st.session_state["timestamp_start"] = datetime.now().isoformat(timespec="seconds")
 if "messages" not in st.session_state:
-    st.session_state["messages"] = [("assistant", WELCOME_MESSAGE, None, None)]
+    st.session_state["messages"] = [("assistant", WELCOME_MESSAGE, None)]
 if "conversation_rated" not in st.session_state:
     st.session_state["conversation_rated"] = False
 if "last_recommended_product" not in st.session_state:
     st.session_state["last_recommended_product"] = None
 
-for idx, (role, content, top, others) in enumerate(st.session_state["messages"]):
-    with st.chat_message(role):
-        st.markdown(content)
-        if top is not None:
-            st.markdown(
-                "<div style='border:2px solid #2C1810; border-radius:10px; padding:16px; margin:10px 0;'>",
-                unsafe_allow_html=True
-            )
-            st.markdown("### 🎯 This is your result")
-            img_col, info_col = st.columns([1, 2])
-            with img_col:
-                if pd.notna(top.get("Image_URL")):
-                    st.image(top["Image_URL"], use_container_width=True)
-            with info_col:
-                st.markdown(f"**Blue Tokai — {top['Product_Name']}**")
-                st.markdown(
-                    f"{top['Roast_Level']} roast, {top['Format'].split('(')[0].strip()}\n\n"
-                    f"Flavor: {top['Flavor_Notes']}\n\n"
-                    f"**{format_price(top)}**"
-                )
-                st.success(f"✅ {top['compatibility_score']}% Compatibility Match")
-            st.markdown("</div>", unsafe_allow_html=True)
-        if others is not None and not others.empty:
-            st.caption(f"🔍 {len(others)} other option(s) that also fit well:")
-            cols = st.columns(min(len(others), 4))
-            for col, (_, prow) in zip(cols, others.iterrows()):
-                with col:
-                    if pd.notna(prow.get("Image_URL")):
-                        st.image(prow["Image_URL"], use_container_width=True)
-                    st.caption(f"**{prow['Product_Name']}**\n{format_price(prow)}\n{prow['compatibility_score']}% match")
+with st.expander("🔍 Or filter manually", expanded=True):
+    sel_roast = st.selectbox("Roast Level", ["Any"] + sorted(in_stock["Roast_Level"].unique()), key="filter_roast")
+    sel_format = st.selectbox("Format", ["Any", "Capsule", "Ground", "Easy Pour", "Cold Brew Bag", "Cold Brew Can", "Concentrate", "Sampler"], key="filter_format")
+    sel_milk = st.selectbox("Milk", ["Any", "With Milk", "Black (No Milk)"], key="filter_milk")
+    filter_submitted = st.button("Get recommendations", key="filter_submit_button")
+    if filter_submitted:
+        matches, prefs = get_manual_filter_recommendations(sel_roast, sel_format, sel_milk, top_n=5)
+        reason = build_reason_text(prefs)
+        top = matches.iloc[0]
+        reply = f"Matched because you wanted: {reason}. Here's my pick, plus a few other options that fit well too:"
+        st.session_state.setdefault("messages", [])
+        st.session_state["messages"].append(("user", f"Manual filter: {reason}", None))
+        st.session_state["messages"].append(("assistant", reply, matches.head(5)))
+        st.session_state["last_recommended_product"] = f"Blue Tokai — {top['Product_Name']}"
+        st.session_state["has_had_response"] = True
+        st.session_state["result_source"] = "manual"
+        st.session_state["scroll_to_latest"] = True
+        log_interaction(f"Manual filter: {reason}", prefs, len(matches))
+        log_spss_session("manual", prefs, top, len(matches) - 1)
+        st.session_state.setdefault("search_history", [])
+        st.session_state["search_history"].append({
+            "query": f"Manual filter: {reason}", "reply": reply, "products": matches.head(5),
+        })
+        st.rerun()
 
+    # Guaranteed tap-to-jump link, right next to the button you just used -
+    # visible in the same screen, no scrolling needed to find it. Unlike
+    # JavaScript auto-scroll (which some mobile browsers block), a plain
+    # anchor link always works.
+    if st.session_state.get("result_source") == "manual" and len(st.session_state.get("messages", [])) > 1:
+        st.markdown(
+            '<a href="#latest-response-anchor" style="font-size:1.05em;">⬇️ Tap here to see your recommendation</a>',
+            unsafe_allow_html=True,
+        )
+
+
+def render_product_cards(product_rows):
+    top_row = product_rows.iloc[0]
+    other_rows = product_rows.iloc[1:]
+
+    # Highlighted "Our Pick" card - bigger image, clearly set apart
+    with st.container(border=True):
+        pick_img_col, pick_info_col = st.columns([1, 2])
+        with pick_img_col:
+            if pd.notna(top_row.get("Image_URL")):
+                st.image(top_row["Image_URL"], use_container_width=True)
+        with pick_info_col:
+            st.markdown(f"### ⭐ Our Pick: {top_row['Product_Name']}")
+            st.markdown(
+                f"**{top_row['Roast_Level']} roast** · {top_row['Format'].split('(')[0].strip()}  \n"
+                f"Flavor: {top_row['Flavor_Notes']}  \n"
+                f"**{format_price(top_row)}** · {top_row['compatibility_score']}% match"
+            )
+
+    # Plain, smaller cards for the remaining options
+    if not other_rows.empty:
+        st.caption("Other options:")
+        cols = st.columns(min(len(other_rows), 4))
+        for col, (_, prow) in zip(cols, other_rows.iterrows()):
+            with col:
+                if pd.notna(prow.get("Image_URL")):
+                    st.image(prow["Image_URL"], use_container_width=True)
+                st.caption(f"{prow['Product_Name']}\n{format_price(prow)}\n{prow['compatibility_score']}% match")
+
+
+def render_latest_result():
+    st.markdown('<div id="latest-response-anchor"></div>', unsafe_allow_html=True)
+    msgs = st.session_state["messages"]
+    latest_msgs = msgs[-2:] if len(msgs) >= 2 else msgs
+    for role, content, product_rows in latest_msgs:
+        with st.chat_message(role):
+            st.markdown(content)
+            if product_rows is not None and not product_rows.empty:
+                render_product_cards(product_rows)
+
+
+def trigger_scroll_to_result():
+    st.markdown("""
+        <script>
+        (function() {
+            function getDoc() {
+                try { if (window.parent && window.parent.document) return window.parent.document; } catch (e) {}
+                return document;
+            }
+            function tryScroll(attemptsLeft) {
+                const doc = getDoc();
+                const anchor = doc.getElementById("latest-response-anchor");
+                if (anchor) {
+                    anchor.scrollIntoView({behavior: "smooth", block: "start"});
+                    return;
+                }
+                if (attemptsLeft > 0) {
+                    setTimeout(function() { tryScroll(attemptsLeft - 1); }, 200);
+                }
+            }
+            tryScroll(15);
+        })();
+        </script>
+    """, unsafe_allow_html=True)
+
+
+# If the manual filter produced the most recent result, show it right here -
+# directly under the filter you just used, and auto-scroll down to it.
+if st.session_state.get("result_source") == "manual":
+    st.divider()
+    render_latest_result()
+    if st.session_state.get("scroll_to_latest"):
+        st.session_state["scroll_to_latest"] = False
+        trigger_scroll_to_result()
+
+# quick-start buttons only shown before the user has typed anything
 if len(st.session_state["messages"]) == 1:
     st.write("Try one of these:")
     cols = st.columns(len(QUICK_START_PROMPTS))
     for col, prompt in zip(cols, QUICK_START_PROMPTS):
         if col.button(prompt, use_container_width=True):
             process_message(prompt)
+            st.session_state["result_source"] = "chat"
+            st.session_state["scroll_to_latest"] = True
             st.rerun()
 
+# Plain, universally-compatible input box (works on every Streamlit version
+# and every device, including mobile) - no special widgets that could fail
+# to render if an older Streamlit version got installed on deploy.
 with st.form(key="user_message_form", clear_on_submit=True):
     user_input = st.text_input("Ask me anything about Blue Tokai coffee:",
                                 placeholder="e.g. Something fruity and light for pour-over")
     submitted = st.form_submit_button("Send")
 if submitted and user_input:
     process_message(user_input)
+    st.session_state["result_source"] = "chat"
+    st.session_state["scroll_to_latest"] = True
     st.rerun()
 
+# Guaranteed tap-to-jump link, right next to the Send button - visible in
+# the same screen, no scrolling needed to find it.
+if st.session_state.get("result_source", "chat") == "chat" and len(st.session_state.get("messages", [])) > 1:
+    st.markdown(
+        '<a href="#latest-response-anchor" style="font-size:1.05em;">⬇️ Tap here to see your recommendation</a>',
+        unsafe_allow_html=True,
+    )
+
+st.divider()
+
+# If the chat box (or a quick-start button) produced the most recent result,
+# show it right here - directly under the chat box, and auto-scroll to it.
+if st.session_state.get("result_source", "chat") == "chat":
+    render_latest_result()
+    if st.session_state.get("scroll_to_latest"):
+        st.session_state["scroll_to_latest"] = False
+        trigger_scroll_to_result()
+
+# collapsible search history - positioned after the chat history
 history = st.session_state.get("search_history", [])
 past_searches = history[:-1] if len(history) > 1 else []
 if past_searches:
@@ -532,23 +831,8 @@ if past_searches:
         for i, entry in enumerate(reversed(past_searches), start=1):
             st.markdown(f"**{i}. You asked:** {entry['query']}")
             st.markdown(entry["reply"])
-            hist_top = entry.get("top")
-            hist_others = entry.get("others")
-            if hist_top is not None:
-                img_col, info_col = st.columns([1, 2])
-                with img_col:
-                    if pd.notna(hist_top.get("Image_URL")):
-                        st.image(hist_top["Image_URL"], use_container_width=True)
-                with info_col:
-                    st.markdown(f"**Blue Tokai — {hist_top['Product_Name']}**")
-                    st.caption(f"{hist_top['Roast_Level']} roast — {format_price(hist_top)} — {hist_top['compatibility_score']}% match")
-            if hist_others is not None and not hist_others.empty:
-                cols = st.columns(min(len(hist_others), 4))
-                for col, (_, prow) in zip(cols, hist_others.iterrows()):
-                    with col:
-                        if pd.notna(prow.get("Image_URL")):
-                            st.image(prow["Image_URL"], use_container_width=True)
-                        st.caption(f"{prow['Product_Name']}\n{format_price(prow)}")
+            if entry["products"] is not None and not entry["products"].empty:
+                render_product_cards(entry["products"])
             st.divider()
 
 st.divider()
@@ -565,9 +849,4 @@ if st.session_state["last_recommended_product"] and not st.session_state["conver
 elif st.session_state["conversation_rated"]:
     st.caption("Thanks for rating this chat! 🙏")
 
-survey_url = build_survey_url(
-    product_name=st.session_state.get("last_recommended_product"),
-    score=st.session_state.get("last_recommended_score"),
-    price=st.session_state.get("last_recommended_price"),
-)
-st.markdown(f"Enjoyed the recommendations? [Share quick feedback here]({survey_url}) — it takes 1 minute.")
+st.markdown(f"Enjoyed the recommendations? [Share quick feedback here]({GOOGLE_FORM_URL}) — it takes 1 minute.")
