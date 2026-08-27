@@ -4,10 +4,36 @@ import difflib
 import re
 import csv
 import os
+import random
 from datetime import datetime
 
 # ---------- CONFIG ----------
 GOOGLE_FORM_URL = "REPLACE_WITH_YOUR_BLUE_TOKAI_SURVEY_FORM_URL"
+
+# Entry IDs below are placeholders - once you build your real Google Form, get
+# these from Google Forms' "Get pre-filled link" feature (see instructions).
+FORM_ENTRY_IDS = {
+    "product": "entry.100001",
+    "score": "entry.100002",
+    "price": "entry.100003",
+}
+
+
+def build_survey_url(product_name=None, score=None, price=None):
+    """Constructs a pre-filled survey URL carrying session metadata, so each
+    response can be tied back to exactly what was recommended - useful for
+    the SPSS regression stage later."""
+    import urllib.parse
+    if GOOGLE_FORM_URL.startswith("REPLACE_"):
+        return GOOGLE_FORM_URL  # not yet configured, just use as-is
+    params = {"usp": "pp_url"}
+    if product_name:
+        params[FORM_ENTRY_IDS["product"]] = product_name
+    if score is not None:
+        params[FORM_ENTRY_IDS["score"]] = str(score)
+    if price is not None:
+        params[FORM_ENTRY_IDS["price"]] = str(price)
+    return f"{GOOGLE_FORM_URL}?{urllib.parse.urlencode(params)}"
 LOG_FILE = "interaction_log.csv"
 RATING_LOG_FILE = "ratings_log.csv"
 
@@ -41,16 +67,14 @@ FLAVOR_KEYWORDS = [
 ROAST_KEYWORDS = {
     "very dark": ["very dark", "french roast", "extra dark"],
     "medium-dark": ["medium-dark", "medium dark"],
-    "light-medium": ["light-medium", "light medium"],
     "light": ["light", "delicate", "bright"],
     "medium": ["medium", "balanced"],
     "dark": ["dark", "bold", "strong", "intense"],
-    "mixed": ["mixed", "medley", "assorted roast"],
 }
 
 FORMAT_KEYWORDS = {
     "capsule": ["capsule", "pod", "nespresso"],
-    "ground": ["ground", "whole bean", "beans", "powder", "filter"],
+    "ground": ["ground", "whole bean", "beans", "powder"],
     "easy pour": ["easy pour", "drip", "sachet", "travel"],
     "cold brew bag": ["cold brew bag"],
     "cold brew can": ["can", "ready to drink", "ready-to-drink", "rtd"],
@@ -66,12 +90,6 @@ MILK_KEYWORDS = {
 BUDGET_VAGUE_KEYWORDS = ["cheap", "affordable", "budget friendly", "budget-friendly",
                           "low cost", "inexpensive", "pocket friendly", "best seller",
                           "most popular", "popular"]
-
-FORMAT_TARGET_MAP = {
-    "capsule": "capsule", "ground": "ground/whole bean", "easy pour": "easy pour",
-    "cold brew bag": "cold brew bag", "cold brew can": "cold brew can",
-    "concentrate": "drop", "sampler": "sampler",
-}
 
 
 # ---------- DATA ----------
@@ -168,16 +186,9 @@ def score_product(row, prefs):
 
     if "roast" in prefs:
         weight_total += 0.30
-        row_roast_l = row["Roast_Level"].lower()
-        if row_roast_l == prefs["roast"]:
+        if row["Roast_Level"].lower() == prefs["roast"]:
             score += 0.30
-        elif prefs["roast"] != "medium" and prefs["roast"] != "dark" and (
-            (prefs["roast"] in row_roast_l and prefs["roast"] not in ("light", "medium", "dark"))
-            or (row_roast_l in prefs["roast"] and row_roast_l not in ("light", "medium", "dark"))
-        ):
-            # Only give partial credit for genuinely related compound roasts
-            # (e.g. "medium-dark" vs "very dark"), not plain substring hits like
-            # "medium" matching inside "light-medium" or "medium-dark".
+        elif prefs["roast"] in row["Roast_Level"].lower() or row["Roast_Level"].lower() in prefs["roast"]:
             score += 0.20
 
     if "flavors" in prefs:
@@ -190,24 +201,14 @@ def score_product(row, prefs):
     if "format" in prefs:
         weight_total += 0.20
         row_format_l = row["Format"].lower()
-        target = FORMAT_TARGET_MAP.get(prefs["format"], "")
+        fmt_map = {
+            "capsule": "capsule", "ground": "ground/whole bean", "easy pour": "easy pour",
+            "cold brew bag": "cold brew bag", "cold brew can": "cold brew can",
+            "concentrate": "drop", "sampler": "sampler",
+        }
+        target = fmt_map.get(prefs["format"], "")
         if target in row_format_l:
             score += 0.20
-
-    if "milk" in prefs:
-        # No explicit milk-pairing column exists, so use roast family as the
-        # best available proxy: darker roasts are conventionally recommended
-        # with milk, lighter roasts are conventionally recommended black.
-        weight_total += 0.10
-        roast_l = row["Roast_Level"].lower()
-        dark_family = "dark" in roast_l
-        light_family = "light" in roast_l
-        if prefs["milk"] == "with milk" and dark_family:
-            score += 0.10
-        elif prefs["milk"] == "black" and light_family:
-            score += 0.10
-        else:
-            score += 0.05  # never a hard dead end
 
     if "budget" in prefs:
         weight_total += 0.15
@@ -222,15 +223,6 @@ def score_product(row, prefs):
         weight_total += 0.05
         if row["Price_INR"] >= prefs["budget_min"]:
             score += 0.05
-
-    if prefs.get("vague_budget"):
-        # "cheap" / "budget friendly" / "best seller" / "most popular" - with no
-        # popularity data available, use price as the best available proxy and
-        # favor lower-priced items.
-        weight_total += 0.15
-        max_price = products["Price_INR"].max()
-        if max_price > 0:
-            score += 0.15 * (1 - (row["Price_INR"] / max_price))
 
     if "estate" in prefs:
         weight_total += 0.10
@@ -251,52 +243,6 @@ def get_recommendations(prefs, top_n=5):
     df = in_stock.copy()
     df["compatibility_score"] = df.apply(lambda row: score_product(row, prefs), axis=1)
     return df.sort_values("compatibility_score", ascending=False).head(top_n)
-
-
-def get_manual_filter_recommendations(roast_choice, format_choice, milk_choice, top_n=5):
-    """Manual-filter dropdowns are exact structured choices, not fuzzy text, so
-    they're applied as hard filters (guaranteeing e.g. Capsule really returns
-    capsules) rather than blended into the fuzzy chat-scoring weights. Falls
-    back to progressively looser filtering rather than ever returning empty."""
-    df = in_stock.copy()
-    filtered = df.copy()
-
-    if roast_choice != "Any":
-        filtered = filtered[filtered["Roast_Level"].str.lower() == roast_choice.lower()]
-
-    if format_choice != "Any":
-        target = FORMAT_TARGET_MAP.get(format_choice.lower(), format_choice.lower())
-        filtered = filtered[filtered["Format"].str.lower().str.contains(target, na=False)]
-
-    if milk_choice == "With Milk":
-        filtered = filtered[filtered["Roast_Level"].str.lower().str.contains("dark", na=False)]
-    elif milk_choice == "Black (No Milk)":
-        filtered = filtered[filtered["Roast_Level"].str.lower().str.contains("light", na=False)]
-
-    if filtered.empty:
-        # No dead ends: relax milk first, then roast, but keep format if possible
-        relaxed = df.copy()
-        if format_choice != "Any":
-            target = FORMAT_TARGET_MAP.get(format_choice.lower(), format_choice.lower())
-            fmt_only = relaxed[relaxed["Format"].str.lower().str.contains(target, na=False)]
-            if not fmt_only.empty:
-                relaxed = fmt_only
-        filtered = relaxed if not relaxed.empty else df.copy()
-
-    filtered = filtered.copy()
-    filtered["compatibility_score"] = 100.0
-
-    prefs = {}
-    if roast_choice != "Any":
-        prefs["roast"] = roast_choice.lower()
-    if format_choice != "Any":
-        prefs["format"] = format_choice.lower()
-    if milk_choice == "With Milk":
-        prefs["milk"] = "with milk"
-    elif milk_choice == "Black (No Milk)":
-        prefs["milk"] = "black"
-
-    return filtered.sort_values("Price_INR").head(top_n), prefs
 
 
 def format_price(row):
@@ -351,7 +297,7 @@ def log_rating(product_name, stars):
 
 
 def process_message(text):
-    st.session_state.setdefault("messages", [])
+    st.session_state["messages"] = []
     st.session_state["messages"].append(("user", text, None))
 
     prefs = extract_preferences(text)
@@ -360,10 +306,17 @@ def process_message(text):
 
     reason = build_reason_text(prefs)
     reply = (
-        f"Matched because you wanted: {reason}. Here's my pick, plus a few other options that fit well too:"
+        f"Matched because you wanted: {reason}.\n\n"
+        f"**My pick: Blue Tokai — {top['Product_Name']}**\n"
+        f"{top['Roast_Level']} roast, {top['Format'].split('(')[0].strip()}, "
+        f"flavor: {top['Flavor_Notes']} — {format_price(top)}  "
+        f"_(Compatibility: {top['compatibility_score']}%)_\n\n"
+        f"_{len(matches)-1} other option(s) also fit well if you'd like to see them - just ask._"
     )
 
     st.session_state["last_recommended_product"] = f"Blue Tokai — {top['Product_Name']}"
+    st.session_state["last_recommended_score"] = top["compatibility_score"]
+    st.session_state["last_recommended_price"] = int(top["Price_INR"])
     st.session_state["has_had_response"] = True
     log_interaction(text, prefs, len(matches))
     st.session_state["messages"].append(("assistant", reply, matches.head(5)))
@@ -378,12 +331,7 @@ def process_message(text):
 st.set_page_config(page_title="Blue Tokai Concierge", page_icon="☕")
 
 # Hidden admin dashboard
-# For production, set ADMIN_SECRET in Streamlit secrets (Settings > Secrets)
-# instead of relying on the hardcoded fallback below.
-try:
-    ADMIN_SECRET = st.secrets["ADMIN_SECRET"]
-except Exception:
-    ADMIN_SECRET = "bluetokai2026"
+ADMIN_SECRET = "bluetokai2026"
 query_params = st.query_params
 if query_params.get("admin") == ADMIN_SECRET:
     st.title("☕ Blue Tokai Concierge — Admin Dashboard")
@@ -398,19 +346,6 @@ if query_params.get("admin") == ADMIN_SECRET:
             col2.metric("Average stars", f"{ratings_df['stars'].mean():.1f} ⭐")
             st.dataframe(ratings_df.sort_values("timestamp", ascending=False), use_container_width=True, hide_index=True)
             st.download_button("Download ratings CSV", ratings_df.to_csv(index=False), "ratings_log.csv", "text/csv")
-            if st.button("🗑️ Clear all ratings", key="clear_ratings_btn"):
-                st.session_state["confirm_clear_ratings"] = True
-            if st.session_state.get("confirm_clear_ratings"):
-                st.warning("This permanently deletes all ratings data. Download a backup first if you want to keep it.")
-                cc1, cc2 = st.columns(2)
-                if cc1.button("Yes, delete all ratings", key="confirm_clear_ratings_btn"):
-                    os.remove(RATING_LOG_FILE)
-                    st.session_state["confirm_clear_ratings"] = False
-                    st.success("Ratings cleared. Starting fresh from now.")
-                    st.rerun()
-                if cc2.button("Cancel", key="cancel_clear_ratings_btn"):
-                    st.session_state["confirm_clear_ratings"] = False
-                    st.rerun()
     else:
         st.info("No ratings yet.")
     st.divider()
@@ -421,25 +356,55 @@ if query_params.get("admin") == ADMIN_SECRET:
             st.metric("Total interactions", len(interactions_df))
             st.dataframe(interactions_df.sort_values("timestamp", ascending=False), use_container_width=True, hide_index=True)
             st.download_button("Download interactions CSV", interactions_df.to_csv(index=False), "interaction_log.csv", "text/csv")
-            if st.button("🗑️ Clear all interactions", key="clear_interactions_btn"):
-                st.session_state["confirm_clear_interactions"] = True
-            if st.session_state.get("confirm_clear_interactions"):
-                st.warning("This permanently deletes all interaction data. Download a backup first if you want to keep it.")
-                ci1, ci2 = st.columns(2)
-                if ci1.button("Yes, delete all interactions", key="confirm_clear_interactions_btn"):
-                    os.remove(LOG_FILE)
-                    st.session_state["confirm_clear_interactions"] = False
-                    st.success("Interactions cleared. Starting fresh from now.")
-                    st.rerun()
-                if ci2.button("Cancel", key="cancel_clear_interactions_btn"):
-                    st.session_state["confirm_clear_interactions"] = False
-                    st.rerun()
     else:
         st.info("No interactions yet.")
     st.stop()
 
-st.markdown("### ☕ Blue Tokai Concierge")
+st.title("☕ Blue Tokai Concierge")
 st.caption("Your personal Blue Tokai taste concierge — one brand, real recommendations.")
+
+with st.expander("🔍 Or answer 4 quick questions", expanded=True):
+    with st.form(key="filter_form"):
+        st.markdown("**1. How do you brew your coffee?** _(pick 1-3)_")
+        sel_formats = st.multiselect(
+            "Brew method", ["Ground/Whole Bean", "Capsule", "Easy Pour", "Cold Brew", "Concentrate/Drop", "Ready-to-Drink Can"],
+            key="filter_formats", label_visibility="collapsed")
+
+        st.markdown("**2. What flavor do you crave?** _(pick 1-2)_")
+        sel_flavors = st.multiselect(
+            "Flavor", ["Chocolate & Cocoa", "Fruity & Berry", "Nutty & Hazelnut", "Floral & Citrus", "Caramel & Honey"],
+            key="filter_flavors", label_visibility="collapsed")
+
+        st.markdown("**3. Black or with milk?**")
+        sel_milk = st.radio("Milk", ["Any", "With Milk", "Black (No Milk)"], key="filter_milk", label_visibility="collapsed", horizontal=True)
+
+        st.markdown("**4. Roast preference?**")
+        sel_roast = st.radio("Roast", ["Any", "Light", "Medium", "Medium-Dark", "Dark"], key="filter_roast", label_visibility="collapsed", horizontal=True)
+
+        filter_submitted = st.form_submit_button("✨ Find my match")
+    if filter_submitted:
+        parts = []
+        format_map = {
+            "Ground/Whole Bean": "ground", "Capsule": "capsule", "Easy Pour": "easy pour",
+            "Cold Brew": "cold brew bag", "Concentrate/Drop": "concentrate", "Ready-to-Drink Can": "cold brew can",
+        }
+        for f in sel_formats:
+            parts.append(format_map.get(f, f.lower()))
+        flavor_map = {
+            "Chocolate & Cocoa": "chocolate", "Fruity & Berry": "fruity", "Nutty & Hazelnut": "nutty",
+            "Floral & Citrus": "citrus", "Caramel & Honey": "caramel",
+        }
+        for f in sel_flavors:
+            parts.append(flavor_map.get(f, f.lower()))
+        if sel_milk == "With Milk":
+            parts.append("with milk")
+        elif sel_milk == "Black (No Milk)":
+            parts.append("black")
+        if sel_roast != "Any":
+            parts.append(f"{sel_roast.lower()} roast")
+        summary_text = "Guided search: " + ", ".join(parts) if parts else "Guided search: any coffee"
+        process_message(summary_text)
+        st.rerun()
 
 if "messages" not in st.session_state:
     st.session_state["messages"] = [("assistant", WELCOME_MESSAGE, None)]
@@ -448,158 +413,33 @@ if "conversation_rated" not in st.session_state:
 if "last_recommended_product" not in st.session_state:
     st.session_state["last_recommended_product"] = None
 
-with st.expander("🔍 Or filter manually", expanded=True):
-    sel_roast = st.selectbox("Roast Level", ["Any"] + sorted(in_stock["Roast_Level"].unique()), key="filter_roast")
-    sel_format = st.selectbox("Format", ["Any", "Capsule", "Ground", "Easy Pour", "Cold Brew Bag", "Cold Brew Can", "Concentrate", "Sampler"], key="filter_format")
-    sel_milk = st.selectbox("Milk", ["Any", "With Milk", "Black (No Milk)"], key="filter_milk")
-    filter_submitted = st.button("Get recommendations", key="filter_submit_button")
-    if filter_submitted:
-        matches, prefs = get_manual_filter_recommendations(sel_roast, sel_format, sel_milk, top_n=5)
-        reason = build_reason_text(prefs)
-        top = matches.iloc[0]
-        reply = f"Matched because you wanted: {reason}. Here's my pick, plus a few other options that fit well too:"
-        st.session_state.setdefault("messages", [])
-        st.session_state["messages"].append(("user", f"Manual filter: {reason}", None))
-        st.session_state["messages"].append(("assistant", reply, matches.head(5)))
-        st.session_state["last_recommended_product"] = f"Blue Tokai — {top['Product_Name']}"
-        st.session_state["has_had_response"] = True
-        st.session_state["result_source"] = "manual"
-        st.session_state["scroll_to_latest"] = True
-        log_interaction(f"Manual filter: {reason}", prefs, len(matches))
-        st.session_state.setdefault("search_history", [])
-        st.session_state["search_history"].append({
-            "query": f"Manual filter: {reason}", "reply": reply, "products": matches.head(5),
-        })
-        st.rerun()
+for idx, (role, content, product_rows) in enumerate(st.session_state["messages"]):
+    with st.chat_message(role):
+        st.markdown(content)
+        if product_rows is not None and not product_rows.empty:
+            cols = st.columns(min(len(product_rows), 5))
+            for col, (_, prow) in zip(cols, product_rows.iterrows()):
+                with col:
+                    if pd.notna(prow.get("Image_URL")):
+                        st.image(prow["Image_URL"], use_container_width=True)
+                    st.caption(f"**{prow['Product_Name']}**\n{format_price(prow)}\n{prow['compatibility_score']}% match")
 
-    # Guaranteed tap-to-jump link, right next to the button you just used -
-    # visible in the same screen, no scrolling needed to find it. Unlike
-    # JavaScript auto-scroll (which some mobile browsers block), a plain
-    # anchor link always works.
-    if st.session_state.get("result_source") == "manual" and len(st.session_state.get("messages", [])) > 1:
-        st.markdown(
-            '<a href="#latest-response-anchor" style="font-size:1.05em;">⬇️ Tap here to see your recommendation</a>',
-            unsafe_allow_html=True,
-        )
-
-
-def render_product_cards(product_rows):
-    top_row = product_rows.iloc[0]
-    other_rows = product_rows.iloc[1:]
-
-    # Highlighted "Our Pick" card - bigger image, clearly set apart
-    with st.container(border=True):
-        pick_img_col, pick_info_col = st.columns([1, 2])
-        with pick_img_col:
-            if pd.notna(top_row.get("Image_URL")):
-                st.image(top_row["Image_URL"], use_container_width=True)
-        with pick_info_col:
-            st.markdown(f"### ⭐ Our Pick: {top_row['Product_Name']}")
-            st.markdown(
-                f"**{top_row['Roast_Level']} roast** · {top_row['Format'].split('(')[0].strip()}  \n"
-                f"Flavor: {top_row['Flavor_Notes']}  \n"
-                f"**{format_price(top_row)}** · {top_row['compatibility_score']}% match"
-            )
-
-    # Plain, smaller cards for the remaining options
-    if not other_rows.empty:
-        st.caption("Other options:")
-        cols = st.columns(min(len(other_rows), 4))
-        for col, (_, prow) in zip(cols, other_rows.iterrows()):
-            with col:
-                if pd.notna(prow.get("Image_URL")):
-                    st.image(prow["Image_URL"], use_container_width=True)
-                st.caption(f"{prow['Product_Name']}\n{format_price(prow)}\n{prow['compatibility_score']}% match")
-
-
-def render_latest_result():
-    st.markdown('<div id="latest-response-anchor"></div>', unsafe_allow_html=True)
-    msgs = st.session_state["messages"]
-    latest_msgs = msgs[-2:] if len(msgs) >= 2 else msgs
-    for role, content, product_rows in latest_msgs:
-        with st.chat_message(role):
-            st.markdown(content)
-            if product_rows is not None and not product_rows.empty:
-                render_product_cards(product_rows)
-
-
-def trigger_scroll_to_result():
-    st.markdown("""
-        <script>
-        (function() {
-            function getDoc() {
-                try { if (window.parent && window.parent.document) return window.parent.document; } catch (e) {}
-                return document;
-            }
-            function tryScroll(attemptsLeft) {
-                const doc = getDoc();
-                const anchor = doc.getElementById("latest-response-anchor");
-                if (anchor) {
-                    anchor.scrollIntoView({behavior: "smooth", block: "start"});
-                    return;
-                }
-                if (attemptsLeft > 0) {
-                    setTimeout(function() { tryScroll(attemptsLeft - 1); }, 200);
-                }
-            }
-            tryScroll(15);
-        })();
-        </script>
-    """, unsafe_allow_html=True)
-
-
-# If the manual filter produced the most recent result, show it right here -
-# directly under the filter you just used, and auto-scroll down to it.
-if st.session_state.get("result_source") == "manual":
-    st.divider()
-    render_latest_result()
-    if st.session_state.get("scroll_to_latest"):
-        st.session_state["scroll_to_latest"] = False
-        trigger_scroll_to_result()
-
-# quick-start buttons only shown before the user has typed anything
 if len(st.session_state["messages"]) == 1:
     st.write("Try one of these:")
     cols = st.columns(len(QUICK_START_PROMPTS))
     for col, prompt in zip(cols, QUICK_START_PROMPTS):
         if col.button(prompt, use_container_width=True):
             process_message(prompt)
-            st.session_state["result_source"] = "chat"
-            st.session_state["scroll_to_latest"] = True
             st.rerun()
 
-# Plain, universally-compatible input box (works on every Streamlit version
-# and every device, including mobile) - no special widgets that could fail
-# to render if an older Streamlit version got installed on deploy.
 with st.form(key="user_message_form", clear_on_submit=True):
     user_input = st.text_input("Ask me anything about Blue Tokai coffee:",
                                 placeholder="e.g. Something fruity and light for pour-over")
     submitted = st.form_submit_button("Send")
 if submitted and user_input:
     process_message(user_input)
-    st.session_state["result_source"] = "chat"
-    st.session_state["scroll_to_latest"] = True
     st.rerun()
 
-# Guaranteed tap-to-jump link, right next to the Send button - visible in
-# the same screen, no scrolling needed to find it.
-if st.session_state.get("result_source", "chat") == "chat" and len(st.session_state.get("messages", [])) > 1:
-    st.markdown(
-        '<a href="#latest-response-anchor" style="font-size:1.05em;">⬇️ Tap here to see your recommendation</a>',
-        unsafe_allow_html=True,
-    )
-
-st.divider()
-
-# If the chat box (or a quick-start button) produced the most recent result,
-# show it right here - directly under the chat box, and auto-scroll to it.
-if st.session_state.get("result_source", "chat") == "chat":
-    render_latest_result()
-    if st.session_state.get("scroll_to_latest"):
-        st.session_state["scroll_to_latest"] = False
-        trigger_scroll_to_result()
-
-# collapsible search history - positioned after the chat history
 history = st.session_state.get("search_history", [])
 past_searches = history[:-1] if len(history) > 1 else []
 if past_searches:
@@ -607,8 +447,6 @@ if past_searches:
         for i, entry in enumerate(reversed(past_searches), start=1):
             st.markdown(f"**{i}. You asked:** {entry['query']}")
             st.markdown(entry["reply"])
-            if entry["products"] is not None and not entry["products"].empty:
-                render_product_cards(entry["products"])
             st.divider()
 
 st.divider()
@@ -625,4 +463,9 @@ if st.session_state["last_recommended_product"] and not st.session_state["conver
 elif st.session_state["conversation_rated"]:
     st.caption("Thanks for rating this chat! 🙏")
 
-st.markdown(f"Enjoyed the recommendations? [Share quick feedback here]({GOOGLE_FORM_URL}) — it takes 1 minute.")
+survey_url = build_survey_url(
+    product_name=st.session_state.get("last_recommended_product"),
+    score=st.session_state.get("last_recommended_score"),
+    price=st.session_state.get("last_recommended_price"),
+)
+st.markdown(f"Enjoyed the recommendations? [Share quick feedback here]({survey_url}) — it takes 1 minute.")
