@@ -494,12 +494,15 @@ if len(st.session_state["messages"]) == 1:
             process_message(prompt)
             st.rerun()
 
-# Native Streamlit chat input - this is a built-in widget that Streamlit
-# itself pins to the bottom of the screen, so it stays reachable without
-# any custom scripting or CSS.
-chat_prompt = st.chat_input("Ask me anything about Blue Tokai coffee — e.g. Something fruity and light for pour-over")
-if chat_prompt:
-    process_message(chat_prompt)
+# Plain, universally-compatible input box (works on every Streamlit version
+# and every device, including mobile) - no special widgets that could fail
+# to render if an older Streamlit version got installed on deploy.
+with st.form(key="user_message_form", clear_on_submit=True):
+    user_input = st.text_input("Ask me anything about Blue Tokai coffee:",
+                                placeholder="e.g. Something fruity and light for pour-over")
+    submitted = st.form_submit_button("Send")
+if submitted and user_input:
+    process_message(user_input)
     st.rerun()
 
 # collapsible search history - positioned after the chat history
