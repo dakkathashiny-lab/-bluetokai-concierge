@@ -412,7 +412,7 @@ if query_params.get("admin") == ADMIN_SECRET:
         st.info("No interactions yet.")
     st.stop()
 
-st.title("☕ Blue Tokai Concierge")
+st.markdown("### ☕ Blue Tokai Concierge")
 st.caption("Your personal Blue Tokai taste concierge — one brand, real recommendations.")
 
 if "messages" not in st.session_state:
@@ -445,6 +445,16 @@ with st.expander("🔍 Or filter manually", expanded=True):
             "query": f"Manual filter: {reason}", "reply": reply, "products": matches.head(5),
         })
         st.rerun()
+
+    # Guaranteed tap-to-jump link, right next to the button you just used -
+    # visible in the same screen, no scrolling needed to find it. Unlike
+    # JavaScript auto-scroll (which some mobile browsers block), a plain
+    # anchor link always works.
+    if st.session_state.get("result_source") == "manual" and len(st.session_state.get("messages", [])) > 1:
+        st.markdown(
+            '<a href="#latest-response-anchor" style="font-size:1.05em;">⬇️ Tap here to see your recommendation</a>',
+            unsafe_allow_html=True,
+        )
 
 
 def render_product_cards(product_rows):
@@ -544,6 +554,14 @@ if submitted and user_input:
     st.session_state["result_source"] = "chat"
     st.session_state["scroll_to_latest"] = True
     st.rerun()
+
+# Guaranteed tap-to-jump link, right next to the Send button - visible in
+# the same screen, no scrolling needed to find it.
+if st.session_state.get("result_source", "chat") == "chat" and len(st.session_state.get("messages", [])) > 1:
+    st.markdown(
+        '<a href="#latest-response-anchor" style="font-size:1.05em;">⬇️ Tap here to see your recommendation</a>',
+        unsafe_allow_html=True,
+    )
 
 st.divider()
 
