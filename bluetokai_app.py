@@ -359,15 +359,15 @@ st.caption("Your personal Blue Tokai taste concierge — one brand, real recomme
 
 with st.expander("🔍 Or answer 4 quick questions", expanded=True):
     with st.form(key="filter_form"):
-        st.markdown("**1. How do you brew your coffee?** _(pick 1-3)_")
-        sel_formats = st.multiselect(
-            "Brew method", ["Ground/Whole Bean", "Capsule", "Easy Pour", "Cold Brew", "Concentrate/Drop", "Ready-to-Drink Can"],
-            key="filter_formats", label_visibility="collapsed")
+        st.markdown("**1. How do you brew your coffee?**")
+        sel_format = st.radio(
+            "Brew method", ["Any", "Ground/Whole Bean", "Capsule", "Easy Pour", "Cold Brew", "Concentrate/Drop", "Ready-to-Drink Can"],
+            key="filter_format", label_visibility="collapsed", horizontal=True)
 
-        st.markdown("**2. What flavor do you crave?** _(pick 1-2)_")
-        sel_flavors = st.multiselect(
-            "Flavor", ["Chocolate & Cocoa", "Fruity & Berry", "Nutty & Hazelnut", "Floral & Citrus", "Caramel & Honey"],
-            key="filter_flavors", label_visibility="collapsed")
+        st.markdown("**2. What flavor do you crave?**")
+        sel_flavor = st.radio(
+            "Flavor", ["Any", "Chocolate & Cocoa", "Fruity & Berry", "Nutty & Hazelnut", "Floral & Citrus", "Caramel & Honey"],
+            key="filter_flavor", label_visibility="collapsed", horizontal=True)
 
         st.markdown("**3. Black or with milk?**")
         sel_milk = st.radio("Milk", ["Any", "With Milk", "Black (No Milk)"], key="filter_milk", label_visibility="collapsed", horizontal=True)
@@ -382,14 +382,14 @@ with st.expander("🔍 Or answer 4 quick questions", expanded=True):
             "Ground/Whole Bean": "ground", "Capsule": "capsule", "Easy Pour": "easy pour",
             "Cold Brew": "cold brew bag", "Concentrate/Drop": "concentrate", "Ready-to-Drink Can": "cold brew can",
         }
-        for f in sel_formats:
-            parts.append(format_map.get(f, f.lower()))
+        if sel_format != "Any":
+            parts.append(format_map.get(sel_format, sel_format.lower()))
         flavor_map = {
             "Chocolate & Cocoa": "chocolate", "Fruity & Berry": "fruity", "Nutty & Hazelnut": "nutty",
             "Floral & Citrus": "citrus", "Caramel & Honey": "caramel",
         }
-        for f in sel_flavors:
-            parts.append(flavor_map.get(f, f.lower()))
+        if sel_flavor != "Any":
+            parts.append(flavor_map.get(sel_flavor, sel_flavor.lower()))
         if sel_milk == "With Milk":
             parts.append("with milk")
         elif sel_milk == "Black (No Milk)":
@@ -411,20 +411,24 @@ for idx, (role, content, top, others) in enumerate(st.session_state["messages"])
     with st.chat_message(role):
         st.markdown(content)
         if top is not None:
-            with st.container(border=True):
-                st.markdown("### 🎯 This is your result")
-                img_col, info_col = st.columns([1, 2])
-                with img_col:
-                    if pd.notna(top.get("Image_URL")):
-                        st.image(top["Image_URL"], use_container_width=True)
-                with info_col:
-                    st.markdown(f"**Blue Tokai — {top['Product_Name']}**")
-                    st.markdown(
-                        f"{top['Roast_Level']} roast, {top['Format'].split('(')[0].strip()}\n\n"
-                        f"Flavor: {top['Flavor_Notes']}\n\n"
-                        f"**{format_price(top)}**"
-                    )
-                    st.success(f"✅ {top['compatibility_score']}% Compatibility Match")
+            st.markdown(
+                "<div style='border:2px solid #2C1810; border-radius:10px; padding:16px; margin:10px 0;'>",
+                unsafe_allow_html=True
+            )
+            st.markdown("### 🎯 This is your result")
+            img_col, info_col = st.columns([1, 2])
+            with img_col:
+                if pd.notna(top.get("Image_URL")):
+                    st.image(top["Image_URL"], use_container_width=True)
+            with info_col:
+                st.markdown(f"**Blue Tokai — {top['Product_Name']}**")
+                st.markdown(
+                    f"{top['Roast_Level']} roast, {top['Format'].split('(')[0].strip()}\n\n"
+                    f"Flavor: {top['Flavor_Notes']}\n\n"
+                    f"**{format_price(top)}**"
+                )
+                st.success(f"✅ {top['compatibility_score']}% Compatibility Match")
+            st.markdown("</div>", unsafe_allow_html=True)
         if others is not None and not others.empty:
             st.caption(f"🔍 {len(others)} other option(s) that also fit well:")
             cols = st.columns(min(len(others), 4))
