@@ -422,13 +422,10 @@ if "conversation_rated" not in st.session_state:
 if "last_recommended_product" not in st.session_state:
     st.session_state["last_recommended_product"] = None
 
-# --- Chat input stays fixed near the top of the page ---
-with st.form(key="user_message_form", clear_on_submit=True):
-    user_input = st.text_input("Ask me anything about Blue Tokai coffee:",
-                                placeholder="e.g. Something fruity and light for pour-over")
-    submitted = st.form_submit_button("Send")
-if submitted and user_input:
-    process_message(user_input)
+# --- Native chat input: Streamlit pins this in a fixed spot automatically ---
+chat_prompt = st.chat_input("Ask me anything about Blue Tokai coffee — e.g. Something fruity and light for pour-over")
+if chat_prompt:
+    process_message(chat_prompt)
     st.rerun()
 
 if len(st.session_state["messages"]) == 1:
@@ -465,52 +462,36 @@ with st.expander("🔍 Or filter manually", expanded=False):
 st.divider()
 st.subheader("📋 Recommendations")
 
-# --- Show newest exchange first so results are visible without scrolling ---
-msgs = st.session_state["messages"]
-turns = []
-i = 0
-if msgs and msgs[0][1] == WELCOME_MESSAGE and msgs[0][2] is None:
-    turns.append([msgs[0]])
-    i = 1
-while i < len(msgs):
-    if i + 1 < len(msgs):
-        turns.append([msgs[i], msgs[i + 1]])
-        i += 2
-    else:
-        turns.append([msgs[i]])
-        i += 1
+for role, content, product_rows in st.session_state["messages"]:
+    with st.chat_message(role):
+        st.markdown(content)
+        if product_rows is not None and not product_rows.empty:
+            top_row = product_rows.iloc[0]
+            other_rows = product_rows.iloc[1:]
 
-for turn in reversed(turns):
-    for role, content, product_rows in turn:
-        with st.chat_message(role):
-            st.markdown(content)
-            if product_rows is not None and not product_rows.empty:
-                top_row = product_rows.iloc[0]
-                other_rows = product_rows.iloc[1:]
+            # Highlighted "Our Pick" card - bigger image, clearly set apart
+            with st.container(border=True):
+                pick_img_col, pick_info_col = st.columns([1, 2])
+                with pick_img_col:
+                    if pd.notna(top_row.get("Image_URL")):
+                        st.image(top_row["Image_URL"], use_container_width=True)
+                with pick_info_col:
+                    st.markdown(f"### ⭐ Our Pick: {top_row['Product_Name']}")
+                    st.markdown(
+                        f"**{top_row['Roast_Level']} roast** · {top_row['Format'].split('(')[0].strip()}  \n"
+                        f"Flavor: {top_row['Flavor_Notes']}  \n"
+                        f"**{format_price(top_row)}** · {top_row['compatibility_score']}% match"
+                    )
 
-                # Highlighted "Our Pick" card - bigger image, clearly set apart
-                with st.container(border=True):
-                    pick_img_col, pick_info_col = st.columns([1, 2])
-                    with pick_img_col:
-                        if pd.notna(top_row.get("Image_URL")):
-                            st.image(top_row["Image_URL"], use_container_width=True)
-                    with pick_info_col:
-                        st.markdown(f"### ⭐ Our Pick: {top_row['Product_Name']}")
-                        st.markdown(
-                            f"{top_row['Roast_Level']} roast · {format_price(top_row)}  \n"
-                            f"**{top_row['compatibility_score']}% match**"
-                        )
-
-                # Plain, smaller cards for the remaining options
-                if not other_rows.empty:
-                    st.caption("Other options:")
-                    cols = st.columns(min(len(other_rows), 4))
-                    for col, (_, prow) in zip(cols, other_rows.iterrows()):
-                        with col:
-                            if pd.notna(prow.get("Image_URL")):
-                                st.image(prow["Image_URL"], use_container_width=True)
-                            st.caption(f"{prow['Product_Name']}\n{format_price(prow)}\n{prow['compatibility_score']}% match")
-    st.divider()
+            # Plain, smaller cards for the remaining options
+            if not other_rows.empty:
+                st.caption("Other options:")
+                cols = st.columns(min(len(other_rows), 4))
+                for col, (_, prow) in zip(cols, other_rows.iterrows()):
+                    with col:
+                        if pd.notna(prow.get("Image_URL")):
+                            st.image(prow["Image_URL"], use_container_width=True)
+                        st.caption(f"{prow['Product_Name']}\n{format_price(prow)}\n{prow['compatibility_score']}% match")
 
 if st.session_state["last_recommended_product"] and not st.session_state["conversation_rated"]:
     st.markdown(f"I hope *{st.session_state['last_recommended_product']}* is exactly what you were looking for! ☕")
