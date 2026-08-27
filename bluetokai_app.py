@@ -298,32 +298,26 @@ def log_rating(product_name, stars):
 
 def process_message(text):
     st.session_state["messages"] = []
-    st.session_state["messages"].append(("user", text, None))
+    st.session_state["messages"].append(("user", text, None, None))
 
     prefs = extract_preferences(text)
     matches = get_recommendations(prefs, top_n=5)
     top = matches.iloc[0]
+    others = matches.iloc[1:5]
 
     reason = build_reason_text(prefs)
-    reply = (
-        f"Matched because you wanted: {reason}.\n\n"
-        f"**My pick: Blue Tokai — {top['Product_Name']}**\n"
-        f"{top['Roast_Level']} roast, {top['Format'].split('(')[0].strip()}, "
-        f"flavor: {top['Flavor_Notes']} — {format_price(top)}  "
-        f"_(Compatibility: {top['compatibility_score']}%)_\n\n"
-        f"_{len(matches)-1} other option(s) also fit well if you'd like to see them - just ask._"
-    )
+    reply = f"Matched because you wanted: {reason}."
 
     st.session_state["last_recommended_product"] = f"Blue Tokai — {top['Product_Name']}"
     st.session_state["last_recommended_score"] = top["compatibility_score"]
     st.session_state["last_recommended_price"] = int(top["Price_INR"])
     st.session_state["has_had_response"] = True
     log_interaction(text, prefs, len(matches))
-    st.session_state["messages"].append(("assistant", reply, matches.head(5)))
+    st.session_state["messages"].append(("assistant", reply, top, others))
 
     st.session_state.setdefault("search_history", [])
     st.session_state["search_history"].append({
-        "query": text, "reply": reply, "products": matches.head(5),
+        "query": text, "reply": reply, "top": top, "others": others,
     })
 
 
@@ -407,18 +401,34 @@ with st.expander("🔍 Or answer 4 quick questions", expanded=True):
         st.rerun()
 
 if "messages" not in st.session_state:
-    st.session_state["messages"] = [("assistant", WELCOME_MESSAGE, None)]
+    st.session_state["messages"] = [("assistant", WELCOME_MESSAGE, None, None)]
 if "conversation_rated" not in st.session_state:
     st.session_state["conversation_rated"] = False
 if "last_recommended_product" not in st.session_state:
     st.session_state["last_recommended_product"] = None
 
-for idx, (role, content, product_rows) in enumerate(st.session_state["messages"]):
+for idx, (role, content, top, others) in enumerate(st.session_state["messages"]):
     with st.chat_message(role):
         st.markdown(content)
-        if product_rows is not None and not product_rows.empty:
-            cols = st.columns(min(len(product_rows), 5))
-            for col, (_, prow) in zip(cols, product_rows.iterrows()):
+        if top is not None:
+            with st.container(border=True):
+                st.markdown("### 🎯 This is your result")
+                img_col, info_col = st.columns([1, 2])
+                with img_col:
+                    if pd.notna(top.get("Image_URL")):
+                        st.image(top["Image_URL"], use_container_width=True)
+                with info_col:
+                    st.markdown(f"**Blue Tokai — {top['Product_Name']}**")
+                    st.markdown(
+                        f"{top['Roast_Level']} roast, {top['Format'].split('(')[0].strip()}\n\n"
+                        f"Flavor: {top['Flavor_Notes']}\n\n"
+                        f"**{format_price(top)}**"
+                    )
+                    st.success(f"✅ {top['compatibility_score']}% Compatibility Match")
+        if others is not None and not others.empty:
+            st.caption(f"🔍 {len(others)} other option(s) that also fit well:")
+            cols = st.columns(min(len(others), 4))
+            for col, (_, prow) in zip(cols, others.iterrows()):
                 with col:
                     if pd.notna(prow.get("Image_URL")):
                         st.image(prow["Image_URL"], use_container_width=True)
