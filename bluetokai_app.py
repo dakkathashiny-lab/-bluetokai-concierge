@@ -437,6 +437,8 @@ with st.expander("🔍 Or filter manually", expanded=True):
         st.session_state["messages"].append(("assistant", reply, matches.head(5)))
         st.session_state["last_recommended_product"] = f"Blue Tokai — {top['Product_Name']}"
         st.session_state["has_had_response"] = True
+        st.session_state["result_source"] = "manual"
+        st.session_state["scroll_to_latest"] = True
         log_interaction(f"Manual filter: {reason}", prefs, len(matches))
         st.session_state.setdefault("search_history", [])
         st.session_state["search_history"].append({
@@ -474,6 +476,51 @@ def render_product_cards(product_rows):
                 st.caption(f"{prow['Product_Name']}\n{format_price(prow)}\n{prow['compatibility_score']}% match")
 
 
+def render_latest_result():
+    st.markdown('<div id="latest-response-anchor"></div>', unsafe_allow_html=True)
+    msgs = st.session_state["messages"]
+    latest_msgs = msgs[-2:] if len(msgs) >= 2 else msgs
+    for role, content, product_rows in latest_msgs:
+        with st.chat_message(role):
+            st.markdown(content)
+            if product_rows is not None and not product_rows.empty:
+                render_product_cards(product_rows)
+
+
+def trigger_scroll_to_result():
+    st.markdown("""
+        <script>
+        (function() {
+            function getDoc() {
+                try { if (window.parent && window.parent.document) return window.parent.document; } catch (e) {}
+                return document;
+            }
+            function tryScroll(attemptsLeft) {
+                const doc = getDoc();
+                const anchor = doc.getElementById("latest-response-anchor");
+                if (anchor) {
+                    anchor.scrollIntoView({behavior: "smooth", block: "start"});
+                    return;
+                }
+                if (attemptsLeft > 0) {
+                    setTimeout(function() { tryScroll(attemptsLeft - 1); }, 200);
+                }
+            }
+            tryScroll(15);
+        })();
+        </script>
+    """, unsafe_allow_html=True)
+
+
+# If the manual filter produced the most recent result, show it right here -
+# directly under the filter you just used, and auto-scroll down to it.
+if st.session_state.get("result_source") == "manual":
+    st.divider()
+    render_latest_result()
+    if st.session_state.get("scroll_to_latest"):
+        st.session_state["scroll_to_latest"] = False
+        trigger_scroll_to_result()
+
 # quick-start buttons only shown before the user has typed anything
 if len(st.session_state["messages"]) == 1:
     st.write("Try one of these:")
@@ -481,6 +528,8 @@ if len(st.session_state["messages"]) == 1:
     for col, prompt in zip(cols, QUICK_START_PROMPTS):
         if col.button(prompt, use_container_width=True):
             process_message(prompt)
+            st.session_state["result_source"] = "chat"
+            st.session_state["scroll_to_latest"] = True
             st.rerun()
 
 # Plain, universally-compatible input box (works on every Streamlit version
@@ -492,21 +541,19 @@ with st.form(key="user_message_form", clear_on_submit=True):
     submitted = st.form_submit_button("Send")
 if submitted and user_input:
     process_message(user_input)
+    st.session_state["result_source"] = "chat"
+    st.session_state["scroll_to_latest"] = True
     st.rerun()
 
 st.divider()
 
-# Only the LATEST exchange shows here, directly below the input box you just
-# used - so the result appears right where you're already looking, with
-# nothing to scroll past. Everything older moves into the "Search History"
-# expander further down instead of piling up in the main view.
-msgs = st.session_state["messages"]
-latest_msgs = msgs[-2:] if len(msgs) >= 2 else msgs
-for role, content, product_rows in latest_msgs:
-    with st.chat_message(role):
-        st.markdown(content)
-        if product_rows is not None and not product_rows.empty:
-            render_product_cards(product_rows)
+# If the chat box (or a quick-start button) produced the most recent result,
+# show it right here - directly under the chat box, and auto-scroll to it.
+if st.session_state.get("result_source", "chat") == "chat":
+    render_latest_result()
+    if st.session_state.get("scroll_to_latest"):
+        st.session_state["scroll_to_latest"] = False
+        trigger_scroll_to_result()
 
 # collapsible search history - positioned after the chat history
 history = st.session_state.get("search_history", [])
