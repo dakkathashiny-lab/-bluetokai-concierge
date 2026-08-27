@@ -422,24 +422,7 @@ if "conversation_rated" not in st.session_state:
 if "last_recommended_product" not in st.session_state:
     st.session_state["last_recommended_product"] = None
 
-# --- Ask box stays at the very top, above everything else, always ---
-with st.form(key="user_message_form", clear_on_submit=True):
-    user_input = st.text_input("Ask me anything about Blue Tokai coffee:",
-                                placeholder="e.g. Something fruity and light for pour-over")
-    submitted = st.form_submit_button("Send")
-if submitted and user_input:
-    process_message(user_input)
-    st.rerun()
-
-if len(st.session_state["messages"]) == 1:
-    st.write("Try one of these:")
-    cols = st.columns(len(QUICK_START_PROMPTS))
-    for col, prompt in zip(cols, QUICK_START_PROMPTS):
-        if col.button(prompt, use_container_width=True):
-            process_message(prompt)
-            st.rerun()
-
-with st.expander("🔍 Or filter manually", expanded=False):
+with st.expander("🔍 Or filter manually", expanded=True):
     sel_roast = st.selectbox("Roast Level", ["Any"] + sorted(in_stock["Roast_Level"].unique()), key="filter_roast")
     sel_format = st.selectbox("Format", ["Any", "Capsule", "Ground", "Easy Pour", "Cold Brew Bag", "Cold Brew Can", "Concentrate", "Sampler"], key="filter_format")
     sel_milk = st.selectbox("Milk", ["Any", "With Milk", "Black (No Milk)"], key="filter_milk")
@@ -491,33 +474,43 @@ def render_product_cards(product_rows):
                 st.caption(f"{prow['Product_Name']}\n{format_price(prow)}\n{prow['compatibility_score']}% match")
 
 
+# Chat history in normal chronological order (oldest to newest), same as before.
+for role, content, product_rows in st.session_state["messages"]:
+    with st.chat_message(role):
+        st.markdown(content)
+        if product_rows is not None and not product_rows.empty:
+            render_product_cards(product_rows)
+
+# quick-start buttons only shown before the user has typed anything
+if len(st.session_state["messages"]) == 1:
+    st.write("Try one of these:")
+    cols = st.columns(len(QUICK_START_PROMPTS))
+    for col, prompt in zip(cols, QUICK_START_PROMPTS):
+        if col.button(prompt, use_container_width=True):
+            process_message(prompt)
+            st.rerun()
+
+# Native Streamlit chat input - this is a built-in widget that Streamlit
+# itself pins to the bottom of the screen, so it stays reachable without
+# any custom scripting or CSS.
+chat_prompt = st.chat_input("Ask me anything about Blue Tokai coffee — e.g. Something fruity and light for pour-over")
+if chat_prompt:
+    process_message(chat_prompt)
+    st.rerun()
+
+# collapsible search history - positioned after the chat history
+history = st.session_state.get("search_history", [])
+past_searches = history[:-1] if len(history) > 1 else []
+if past_searches:
+    with st.expander(f"📜 Search History ({len(past_searches)} earlier search{'es' if len(past_searches) != 1 else ''})"):
+        for i, entry in enumerate(reversed(past_searches), start=1):
+            st.markdown(f"**{i}. You asked:** {entry['query']}")
+            st.markdown(entry["reply"])
+            if entry["products"] is not None and not entry["products"].empty:
+                render_product_cards(entry["products"])
+            st.divider()
+
 st.divider()
-st.subheader("📋 Recommendations")
-
-# Newest exchange shown FIRST, directly below the input - guaranteed visible
-# with no scrolling and no JavaScript needed. Older turns (2nd, 3rd search,
-# etc.) stay listed below it, so the full history is always still there.
-msgs = st.session_state["messages"]
-turns = []
-i = 0
-if msgs and msgs[0][1] == WELCOME_MESSAGE and msgs[0][2] is None:
-    turns.append([msgs[0]])
-    i = 1
-while i < len(msgs):
-    if i + 1 < len(msgs):
-        turns.append([msgs[i], msgs[i + 1]])
-        i += 2
-    else:
-        turns.append([msgs[i]])
-        i += 1
-
-for turn in reversed(turns):
-    for role, content, product_rows in turn:
-        with st.chat_message(role):
-            st.markdown(content)
-            if product_rows is not None and not product_rows.empty:
-                render_product_cards(product_rows)
-    st.divider()
 
 if st.session_state["last_recommended_product"] and not st.session_state["conversation_rated"]:
     st.markdown(f"I hope *{st.session_state['last_recommended_product']}* is exactly what you were looking for! ☕")
