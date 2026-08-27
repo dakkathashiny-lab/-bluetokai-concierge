@@ -398,6 +398,19 @@ if query_params.get("admin") == ADMIN_SECRET:
             col2.metric("Average stars", f"{ratings_df['stars'].mean():.1f} ⭐")
             st.dataframe(ratings_df.sort_values("timestamp", ascending=False), use_container_width=True, hide_index=True)
             st.download_button("Download ratings CSV", ratings_df.to_csv(index=False), "ratings_log.csv", "text/csv")
+            if st.button("🗑️ Clear all ratings", key="clear_ratings_btn"):
+                st.session_state["confirm_clear_ratings"] = True
+            if st.session_state.get("confirm_clear_ratings"):
+                st.warning("This permanently deletes all ratings data. Download a backup first if you want to keep it.")
+                cc1, cc2 = st.columns(2)
+                if cc1.button("Yes, delete all ratings", key="confirm_clear_ratings_btn"):
+                    os.remove(RATING_LOG_FILE)
+                    st.session_state["confirm_clear_ratings"] = False
+                    st.success("Ratings cleared. Starting fresh from now.")
+                    st.rerun()
+                if cc2.button("Cancel", key="cancel_clear_ratings_btn"):
+                    st.session_state["confirm_clear_ratings"] = False
+                    st.rerun()
     else:
         st.info("No ratings yet.")
     st.divider()
@@ -408,6 +421,19 @@ if query_params.get("admin") == ADMIN_SECRET:
             st.metric("Total interactions", len(interactions_df))
             st.dataframe(interactions_df.sort_values("timestamp", ascending=False), use_container_width=True, hide_index=True)
             st.download_button("Download interactions CSV", interactions_df.to_csv(index=False), "interaction_log.csv", "text/csv")
+            if st.button("🗑️ Clear all interactions", key="clear_interactions_btn"):
+                st.session_state["confirm_clear_interactions"] = True
+            if st.session_state.get("confirm_clear_interactions"):
+                st.warning("This permanently deletes all interaction data. Download a backup first if you want to keep it.")
+                ci1, ci2 = st.columns(2)
+                if ci1.button("Yes, delete all interactions", key="confirm_clear_interactions_btn"):
+                    os.remove(LOG_FILE)
+                    st.session_state["confirm_clear_interactions"] = False
+                    st.success("Interactions cleared. Starting fresh from now.")
+                    st.rerun()
+                if ci2.button("Cancel", key="cancel_clear_interactions_btn"):
+                    st.session_state["confirm_clear_interactions"] = False
+                    st.rerun()
     else:
         st.info("No interactions yet.")
     st.stop()
