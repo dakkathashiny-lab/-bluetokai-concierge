@@ -474,17 +474,6 @@ def render_product_cards(product_rows):
                 st.caption(f"{prow['Product_Name']}\n{format_price(prow)}\n{prow['compatibility_score']}% match")
 
 
-# Only the LATEST exchange shows here - always immediately visible, nothing
-# to scroll past. Everything older moves into the "Search History" expander
-# further down, instead of piling up in the main view.
-msgs = st.session_state["messages"]
-latest_msgs = msgs[-2:] if len(msgs) >= 2 else msgs
-for role, content, product_rows in latest_msgs:
-    with st.chat_message(role):
-        st.markdown(content)
-        if product_rows is not None and not product_rows.empty:
-            render_product_cards(product_rows)
-
 # quick-start buttons only shown before the user has typed anything
 if len(st.session_state["messages"]) == 1:
     st.write("Try one of these:")
@@ -504,6 +493,20 @@ with st.form(key="user_message_form", clear_on_submit=True):
 if submitted and user_input:
     process_message(user_input)
     st.rerun()
+
+st.divider()
+
+# Only the LATEST exchange shows here, directly below the input box you just
+# used - so the result appears right where you're already looking, with
+# nothing to scroll past. Everything older moves into the "Search History"
+# expander further down instead of piling up in the main view.
+msgs = st.session_state["messages"]
+latest_msgs = msgs[-2:] if len(msgs) >= 2 else msgs
+for role, content, product_rows in latest_msgs:
+    with st.chat_message(role):
+        st.markdown(content)
+        if product_rows is not None and not product_rows.empty:
+            render_product_cards(product_rows)
 
 # collapsible search history - positioned after the chat history
 history = st.session_state.get("search_history", [])
