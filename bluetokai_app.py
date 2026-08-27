@@ -385,7 +385,21 @@ if query_params.get("admin") == ADMIN_SECRET:
             col1.metric("Total ratings", len(ratings_df))
             col2.metric("Average stars", f"{ratings_df['stars'].mean():.1f} ⭐")
             st.dataframe(ratings_df.sort_values("timestamp", ascending=False), use_container_width=True, hide_index=True)
-            st.download_button("Download ratings CSV", ratings_df.to_csv(index=False), "ratings_log.csv", "text/csv")
+            dl_col, clear_col = st.columns(2)
+            dl_col.download_button("⬇️ Download ratings CSV", ratings_df.to_csv(index=False), "ratings_log.csv", "text/csv")
+            if clear_col.button("🗑️ Clear ratings history", key="clear_ratings_btn"):
+                st.session_state["confirm_clear_ratings"] = True
+            if st.session_state.get("confirm_clear_ratings"):
+                st.warning("⚠️ This permanently deletes all ratings data. Download a backup first if needed.")
+                yes_col, no_col = st.columns(2)
+                if yes_col.button("Yes, delete permanently", key="confirm_clear_ratings_yes"):
+                    os.remove(RATING_LOG_FILE)
+                    st.session_state["confirm_clear_ratings"] = False
+                    st.success("Ratings history cleared.")
+                    st.rerun()
+                if no_col.button("Cancel", key="confirm_clear_ratings_no"):
+                    st.session_state["confirm_clear_ratings"] = False
+                    st.rerun()
     else:
         st.info("No ratings yet.")
     st.divider()
@@ -395,7 +409,21 @@ if query_params.get("admin") == ADMIN_SECRET:
         if not interactions_df.empty:
             st.metric("Total interactions", len(interactions_df))
             st.dataframe(interactions_df.sort_values("timestamp", ascending=False), use_container_width=True, hide_index=True)
-            st.download_button("Download interactions CSV", interactions_df.to_csv(index=False), "interaction_log.csv", "text/csv")
+            dl_col2, clear_col2 = st.columns(2)
+            dl_col2.download_button("⬇️ Download interactions CSV", interactions_df.to_csv(index=False), "interaction_log.csv", "text/csv")
+            if clear_col2.button("🗑️ Clear interaction history", key="clear_interactions_btn"):
+                st.session_state["confirm_clear_interactions"] = True
+            if st.session_state.get("confirm_clear_interactions"):
+                st.warning("⚠️ This permanently deletes all interaction data. Download a backup first if needed.")
+                yes_col2, no_col2 = st.columns(2)
+                if yes_col2.button("Yes, delete permanently", key="confirm_clear_interactions_yes"):
+                    os.remove(LOG_FILE)
+                    st.session_state["confirm_clear_interactions"] = False
+                    st.success("Interaction history cleared.")
+                    st.rerun()
+                if no_col2.button("Cancel", key="confirm_clear_interactions_no"):
+                    st.session_state["confirm_clear_interactions"] = False
+                    st.rerun()
     else:
         st.info("No interactions yet.")
     st.stop()
