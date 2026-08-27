@@ -672,22 +672,43 @@ if "last_recommended_product" not in st.session_state:
     st.session_state["last_recommended_product"] = None
 
 with st.expander("🔍 Or filter manually", expanded=True):
-    box_roast, box_format, box_milk = st.columns(3)
-    with box_roast:
-        with st.container(border=True):
-            st.markdown("**☕ Roast Level**")
-            sel_roast = st.radio("Roast Level", sorted(in_stock["Roast_Level"].unique()),
-                                  key="filter_roast", label_visibility="collapsed")
-    with box_format:
-        with st.container(border=True):
-            st.markdown("**📦 Format**")
-            sel_format = st.radio("Format", ["Capsule", "Ground", "Easy Pour", "Cold Brew Bag", "Cold Brew Can", "Concentrate", "Sampler"],
-                                   key="filter_format", label_visibility="collapsed")
-    with box_milk:
-        with st.container(border=True):
-            st.markdown("**🥛 Milk**")
-            sel_milk = st.radio("Milk", ["With Milk", "Black (No Milk)"],
-                                 key="filter_milk", label_visibility="collapsed")
+    st.markdown(
+        """
+        <style>
+        .st-key-roast_box {
+            border-left: 4px solid #6F4E37 !important;
+            border-radius: 10px !important;
+            padding: 0.75rem 1rem !important;
+            background-color: rgba(111, 78, 55, 0.04) !important;
+        }
+        .st-key-format_box {
+            border-left: 4px solid #2E7D6B !important;
+            border-radius: 10px !important;
+            padding: 0.75rem 1rem !important;
+            background-color: rgba(46, 125, 107, 0.04) !important;
+        }
+        .st-key-milk_box {
+            border-left: 4px solid #C97B3D !important;
+            border-radius: 10px !important;
+            padding: 0.75rem 1rem !important;
+            background-color: rgba(201, 123, 61, 0.04) !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+    with st.container(border=True, key="roast_box"):
+        st.markdown("**☕ Roast Level**")
+        sel_roast = st.radio("Roast Level", sorted(in_stock["Roast_Level"].unique()),
+                              key="filter_roast", label_visibility="collapsed", horizontal=True)
+    with st.container(border=True, key="format_box"):
+        st.markdown("**📦 Format**")
+        sel_format = st.radio("Format", ["Capsule", "Ground", "Easy Pour", "Cold Brew Bag", "Cold Brew Can", "Concentrate", "Sampler"],
+                               key="filter_format", label_visibility="collapsed", horizontal=True)
+    with st.container(border=True, key="milk_box"):
+        st.markdown("**🥛 Milk**")
+        sel_milk = st.radio("Milk", ["With Milk", "Black (No Milk)"],
+                             key="filter_milk", label_visibility="collapsed", horizontal=True)
 
     filter_submitted = st.button("Get recommendations", key="filter_submit_button")
     if filter_submitted:
