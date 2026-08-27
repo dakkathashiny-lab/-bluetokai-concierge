@@ -89,6 +89,20 @@ FORMAT_TARGET_MAP = {
     "concentrate": "drop", "sampler": "sampler",
 }
 
+# Consumer-facing "how do you brew at home" options for the manual filter,
+# mapped to one or more real Format substrings in the catalog. "Quick - Just
+# Hot Water" covers Easy Pour and Drop - Blue Tokai doesn't sell literal
+# instant coffee (confirmed against their own site), so this is labeled
+# honestly as "instant-style convenience" rather than "Instant Coffee".
+BREWING_METHOD_TARGETS = {
+    "filter coffee": ["ground/whole bean", "easy pour"],
+    "french press": ["ground/whole bean"],
+    "moka pot / stovetop": ["ground/whole bean"],
+    "espresso machine / capsule": ["capsule"],
+    "quick - just hot water": ["easy pour", "drop"],
+    "cold brew": ["cold brew bag", "cold brew can"],
+}
+
 
 # ---------- DATA ----------
 @st.cache_data
@@ -353,7 +367,7 @@ def get_llm_recommendation(user_text, prefs):
         return None  # any network/parsing failure - fall back, no crash
 
 
-def get_manual_filter_recommendations(roast_choice, format_choice, milk_choice, top_n=5):
+def get_manual_filter_recommendations(roast_choice, brew_choice, milk_choice, top_n=5):
     """Manual-filter dropdowns are exact structured choices, not fuzzy text, so
     they're applied as hard filters (guaranteeing e.g. Capsule really returns
     capsules) rather than blended into the fuzzy chat-scoring weights. Falls
@@ -364,21 +378,23 @@ def get_manual_filter_recommendations(roast_choice, format_choice, milk_choice, 
     if roast_choice != "Any":
         filtered = filtered[filtered["Roast_Level"].str.lower() == roast_choice.lower()]
 
-    if format_choice != "Any":
-        target = FORMAT_TARGET_MAP.get(format_choice.lower(), format_choice.lower())
-        filtered = filtered[filtered["Format"].str.lower().str.contains(target, na=False)]
+    if brew_choice != "Any":
+        targets = BREWING_METHOD_TARGETS.get(brew_choice.lower(), [brew_choice.lower()])
+        mask = filtered["Format"].str.lower().apply(lambda f: any(t in f for t in targets))
+        filtered = filtered[mask]
 
     if milk_choice == "With Milk":
         filtered = filtered[filtered["Roast_Level"].str.lower().str.contains("dark", na=False)]
-    elif milk_choice == "Black (No Milk)":
+    elif milk_choice == "Black - No Milk":
         filtered = filtered[filtered["Roast_Level"].str.lower().str.contains("light", na=False)]
 
     if filtered.empty:
-        # No dead ends: relax milk first, then roast, but keep format if possible
+        # No dead ends: relax milk first, then roast, but keep brewing method if possible
         relaxed = df.copy()
-        if format_choice != "Any":
-            target = FORMAT_TARGET_MAP.get(format_choice.lower(), format_choice.lower())
-            fmt_only = relaxed[relaxed["Format"].str.lower().str.contains(target, na=False)]
+        if brew_choice != "Any":
+            targets = BREWING_METHOD_TARGETS.get(brew_choice.lower(), [brew_choice.lower()])
+            mask = relaxed["Format"].str.lower().apply(lambda f: any(t in f for t in targets))
+            fmt_only = relaxed[mask]
             if not fmt_only.empty:
                 relaxed = fmt_only
         filtered = relaxed if not relaxed.empty else df.copy()
@@ -389,11 +405,11 @@ def get_manual_filter_recommendations(roast_choice, format_choice, milk_choice, 
     prefs = {}
     if roast_choice != "Any":
         prefs["roast"] = roast_choice.lower()
-    if format_choice != "Any":
-        prefs["format"] = format_choice.lower()
+    if brew_choice != "Any":
+        prefs["format"] = brew_choice.lower()
     if milk_choice == "With Milk":
         prefs["milk"] = "with milk"
-    elif milk_choice == "Black (No Milk)":
+    elif milk_choice == "Black - No Milk":
         prefs["milk"] = "black"
 
     return filtered.sort_values("Price_INR").head(top_n), prefs
@@ -479,10 +495,14 @@ def log_spss_session(source, prefs, top_row, num_alternatives, completed_flag=1,
         duration = 0.0
 
     roast_match_flag = int(str(prefs.get("roast", "")).strip().lower() == str(top_row["Roast_Level"]).strip().lower())
-    format_match_flag = int(
-        FORMAT_TARGET_MAP.get(str(prefs.get("format", "")).strip().lower(), "")
-        in str(top_row["Format"]).strip().lower()
-    ) if "format" in prefs else 0
+    pref_format = str(prefs.get("format", "")).strip().lower()
+    row_format_l = str(top_row["Format"]).strip().lower()
+    if pref_format in BREWING_METHOD_TARGETS:
+        format_match_flag = int(any(t in row_format_l for t in BREWING_METHOD_TARGETS[pref_format]))
+    elif "format" in prefs:
+        format_match_flag = int(FORMAT_TARGET_MAP.get(pref_format, "") in row_format_l)
+    else:
+        format_match_flag = 0
 
     row = {
         "session_id": st.session_state.get("session_id", ""),
@@ -702,12 +722,13 @@ with st.expander("🔍 Or filter manually", expanded=True):
         sel_roast = st.radio("Roast Level", sorted(in_stock["Roast_Level"].unique()),
                               key="filter_roast", label_visibility="collapsed", horizontal=True)
     with st.container(border=True, key="format_box"):
-        st.markdown("**📦 Format**")
-        sel_format = st.radio("Format", ["Capsule", "Ground", "Easy Pour", "Cold Brew Bag", "Cold Brew Can", "Concentrate", "Sampler"],
+        st.markdown("**📦 How Do You Brew?**")
+        sel_format = st.radio("How Do You Brew?", ["Filter Coffee", "French Press", "Moka Pot / Stovetop",
+                                                     "Espresso Machine / Capsule", "Quick - Just Hot Water", "Cold Brew"],
                                key="filter_format", label_visibility="collapsed", horizontal=True)
     with st.container(border=True, key="milk_box"):
         st.markdown("**🥛 Milk**")
-        sel_milk = st.radio("Milk", ["With Milk", "Black (No Milk)"],
+        sel_milk = st.radio("Milk", ["With Milk", "Black - No Milk"],
                              key="filter_milk", label_visibility="collapsed", horizontal=True)
 
     filter_submitted = st.button("Get recommendations", key="filter_submit_button")
