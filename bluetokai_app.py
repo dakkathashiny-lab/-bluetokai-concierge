@@ -781,7 +781,9 @@ def render_product_cards(product_rows):
                 f"**{format_price(top_row)}** · {top_row['compatibility_score']}% match"
             )
 
-    # Plain, smaller cards for the remaining options
+    # Plain, smaller cards for the remaining options - no match % shown here,
+    # since these come from a different scoring system than the top pick
+    # (rule-based vs AI) and the two numbers aren't directly comparable.
     if not other_rows.empty:
         st.caption("Other options:")
         cols = st.columns(min(len(other_rows), 4))
@@ -789,7 +791,7 @@ def render_product_cards(product_rows):
             with col:
                 if pd.notna(prow.get("Image_URL")):
                     st.image(prow["Image_URL"], use_container_width=True)
-                st.caption(f"{prow['Product_Name']}\n{format_price(prow)}\n{prow['compatibility_score']}% match")
+                st.caption(f"{prow['Product_Name']}\n{format_price(prow)}")
 
 
 def render_latest_result():
