@@ -474,8 +474,12 @@ def render_product_cards(product_rows):
                 st.caption(f"{prow['Product_Name']}\n{format_price(prow)}\n{prow['compatibility_score']}% match")
 
 
-# Chat history in normal chronological order (oldest to newest), same as before.
-for role, content, product_rows in st.session_state["messages"]:
+# Only the LATEST exchange shows here - always immediately visible, nothing
+# to scroll past. Everything older moves into the "Search History" expander
+# further down, instead of piling up in the main view.
+msgs = st.session_state["messages"]
+latest_msgs = msgs[-2:] if len(msgs) >= 2 else msgs
+for role, content, product_rows in latest_msgs:
     with st.chat_message(role):
         st.markdown(content)
         if product_rows is not None and not product_rows.empty:
