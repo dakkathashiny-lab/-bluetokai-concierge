@@ -424,11 +424,10 @@ if "last_recommended_product" not in st.session_state:
     st.session_state["last_recommended_product"] = None
 
 with st.expander("🔍 Or filter manually", expanded=True):
-    with st.form(key="filter_form"):
-        sel_roast = st.selectbox("Roast Level", ["Any"] + sorted(in_stock["Roast_Level"].unique()), key="filter_roast")
-        sel_format = st.selectbox("Format", ["Any", "Capsule", "Ground", "Easy Pour", "Cold Brew Bag", "Cold Brew Can", "Concentrate", "Sampler"], key="filter_format")
-        sel_milk = st.selectbox("Milk", ["Any", "With Milk", "Black (No Milk)"], key="filter_milk")
-        filter_submitted = st.form_submit_button("Get recommendations")
+    sel_roast = st.selectbox("Roast Level", ["Any"] + sorted(in_stock["Roast_Level"].unique()), key="filter_roast")
+    sel_format = st.selectbox("Format", ["Any", "Capsule", "Ground", "Easy Pour", "Cold Brew Bag", "Cold Brew Can", "Concentrate", "Sampler"], key="filter_format")
+    sel_milk = st.selectbox("Milk", ["Any", "With Milk", "Black (No Milk)"], key="filter_milk")
+    filter_submitted = st.button("Get recommendations", key="filter_submit_button")
     if filter_submitted:
         matches, prefs = get_manual_filter_recommendations(sel_roast, sel_format, sel_milk, top_n=5)
         reason = build_reason_text(prefs)
