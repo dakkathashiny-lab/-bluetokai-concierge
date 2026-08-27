@@ -387,19 +387,19 @@ with st.expander("🔍 Or answer 4 quick questions", expanded=True):
     with st.form(key="filter_form"):
         st.markdown("**1. How do you brew your coffee?**")
         sel_format = st.radio(
-            "Brew method", ["Any", "Ground/Whole Bean", "Capsule", "Easy Pour", "Cold Brew", "Concentrate/Drop", "Ready-to-Drink Can"],
+            "Brew method", ["Ground/Whole Bean", "Capsule", "Easy Pour", "Cold Brew", "Concentrate/Drop", "Ready-to-Drink Can"],
             key="filter_format", label_visibility="collapsed", horizontal=True)
 
         st.markdown("**2. What flavor do you crave?**")
         sel_flavor = st.radio(
-            "Flavor", ["Any", "Plain / Classic (No Specific Flavor)", "Chocolate & Cocoa", "Fruity & Berry", "Nutty & Hazelnut", "Floral & Citrus", "Caramel & Honey"],
+            "Flavor", ["Plain / Classic (No Specific Flavor)", "Chocolate & Cocoa", "Fruity & Berry", "Nutty & Hazelnut", "Floral & Citrus", "Caramel & Honey"],
             key="filter_flavor", label_visibility="collapsed", horizontal=True)
 
         st.markdown("**3. Black or with milk?**")
-        sel_milk = st.radio("Milk", ["Any", "With Milk", "Black (No Milk)"], key="filter_milk", label_visibility="collapsed", horizontal=True)
+        sel_milk = st.radio("Milk", ["With Milk", "Black (No Milk)"], key="filter_milk", label_visibility="collapsed", horizontal=True)
 
         st.markdown("**4. Roast preference?**")
-        sel_roast = st.radio("Roast", ["Any", "Light", "Medium", "Medium-Dark", "Dark"], key="filter_roast", label_visibility="collapsed", horizontal=True)
+        sel_roast = st.radio("Roast", ["Light", "Medium", "Medium-Dark", "Dark"], key="filter_roast", label_visibility="collapsed", horizontal=True)
 
         filter_submitted = st.form_submit_button("✨ Find my match")
     if filter_submitted:
@@ -408,23 +408,18 @@ with st.expander("🔍 Or answer 4 quick questions", expanded=True):
             "Ground/Whole Bean": "ground", "Capsule": "capsule", "Easy Pour": "easy pour",
             "Cold Brew": "cold brew bag", "Concentrate/Drop": "concentrate", "Ready-to-Drink Can": "cold brew can",
         }
-        if sel_format != "Any":
-            parts.append(format_map.get(sel_format, sel_format.lower()))
+        parts.append(format_map.get(sel_format, sel_format.lower()))
         flavor_map = {
             "Chocolate & Cocoa": "chocolate", "Fruity & Berry": "fruity", "Nutty & Hazelnut": "nutty",
             "Floral & Citrus": "citrus", "Caramel & Honey": "caramel",
         }
-        if sel_flavor not in ("Any", "Plain / Classic (No Specific Flavor)"):
-            parts.append(flavor_map.get(sel_flavor, sel_flavor.lower()))
-        elif sel_flavor == "Plain / Classic (No Specific Flavor)":
+        if sel_flavor == "Plain / Classic (No Specific Flavor)":
             parts.append("classic, plain coffee")
-        if sel_milk == "With Milk":
-            parts.append("with milk")
-        elif sel_milk == "Black (No Milk)":
-            parts.append("black")
-        if sel_roast != "Any":
-            parts.append(f"{sel_roast.lower()} roast")
-        summary_text = "Guided search: " + ", ".join(parts) if parts else "Guided search: any coffee"
+        else:
+            parts.append(flavor_map.get(sel_flavor, sel_flavor.lower()))
+        parts.append("with milk" if sel_milk == "With Milk" else "black")
+        parts.append(f"{sel_roast.lower()} roast")
+        summary_text = "Guided search: " + ", ".join(parts)
         process_message(summary_text)
         st.rerun()
 
@@ -489,6 +484,23 @@ if past_searches:
         for i, entry in enumerate(reversed(past_searches), start=1):
             st.markdown(f"**{i}. You asked:** {entry['query']}")
             st.markdown(entry["reply"])
+            hist_top = entry.get("top")
+            hist_others = entry.get("others")
+            if hist_top is not None:
+                img_col, info_col = st.columns([1, 2])
+                with img_col:
+                    if pd.notna(hist_top.get("Image_URL")):
+                        st.image(hist_top["Image_URL"], use_container_width=True)
+                with info_col:
+                    st.markdown(f"**Blue Tokai — {hist_top['Product_Name']}**")
+                    st.caption(f"{hist_top['Roast_Level']} roast — {format_price(hist_top)} — {hist_top['compatibility_score']}% match")
+            if hist_others is not None and not hist_others.empty:
+                cols = st.columns(min(len(hist_others), 4))
+                for col, (_, prow) in zip(cols, hist_others.iterrows()):
+                    with col:
+                        if pd.notna(prow.get("Image_URL")):
+                            st.image(prow["Image_URL"], use_container_width=True)
+                        st.caption(f"{prow['Product_Name']}\n{format_price(prow)}")
             st.divider()
 
 st.divider()
