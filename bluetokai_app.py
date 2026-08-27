@@ -671,6 +671,48 @@ if "conversation_rated" not in st.session_state:
 if "last_recommended_product" not in st.session_state:
     st.session_state["last_recommended_product"] = None
 
+def photo_choice(options_with_images, key, default=None):
+    """A row of photo + button choices, since st.radio can't show images per
+    option. Selection persists in session_state across reruns."""
+    state_key = f"{key}_selected"
+    if state_key not in st.session_state:
+        st.session_state[state_key] = default or options_with_images[0][0]
+
+    cols = st.columns(len(options_with_images))
+    for col, (label, image_url) in zip(cols, options_with_images):
+        with col:
+            if image_url:
+                st.image(image_url, use_container_width=True)
+            is_selected = st.session_state[state_key] == label
+            btn_label = f"✅ {label}" if is_selected else label
+            if st.button(btn_label, key=f"{key}_{label}", use_container_width=True):
+                st.session_state[state_key] = label
+                st.rerun()
+    return st.session_state[state_key]
+
+
+# One representative real product photo per Roast Level / Format, sourced
+# directly from blue_tokai_products.csv - no external/stock images used.
+ROAST_LEVEL_IMAGES = {
+    "Dark": "https://bluetokaicoffee.com/cdn/shop/files/1.-Krishnagiri-Estate__Front.jpg",
+    "Light": "https://bluetokaicoffee.com/cdn/shop/files/PS-Mosto-list.png",
+    "Light-Medium": "https://bluetokaicoffee.com/cdn/shop/files/1.-Salawara-Estate__Front_8b9bc3a2-4cc5-48d6-b256-ec2549e4558e.jpg",
+    "Medium": "https://bluetokaicoffee.com/cdn/shop/files/1.-Half-Caff__Front_b6fd7e82-a892-4233-9e4b-744783a97b6d.jpg",
+    "Medium-Dark": "https://bluetokaicoffee.com/cdn/shop/files/Attikan-estate-Front.jpg",
+    "Mixed": "https://bluetokaicoffee.com/cdn/shop/files/Card-01_a5dbef83-3fa2-4cf6-ba07-c0227a545720.jpg",
+    "Very Dark": "https://bluetokaicoffee.com/cdn/shop/files/FrenchRoast__Front_1.jpg",
+}
+FORMAT_IMAGES = {
+    "Capsule": "https://bluetokaicoffee.com/cdn/shop/files/Attikan-estate-coffee-capsules-10.jpg",
+    "Ground": "https://bluetokaicoffee.com/cdn/shop/files/Attikan-estate-Front.jpg",
+    "Easy Pour": "https://bluetokaicoffee.com/cdn/shop/files/AttikanEstate__Front.jpg",
+    "Cold Brew Bag": "https://bluetokaicoffee.com/cdn/shop/files/Creative1_10.jpg",
+    "Cold Brew Can": "https://bluetokaicoffee.com/cdn/shop/files/2.-Mocha-Cold-_Double.jpg",
+    "Concentrate": "https://bluetokaicoffee.com/cdn/shop/files/Card-02_04b71f51-14f3-4f27-a02f-e511ac70866c.jpg",
+    "Sampler": "https://bluetokaicoffee.com/cdn/shop/files/Card-01_a5dbef83-3fa2-4cf6-ba07-c0227a545720.jpg",
+}
+
+
 with st.expander("🔍 Or filter manually", expanded=True):
     st.markdown(
         """
@@ -698,15 +740,21 @@ with st.expander("🔍 Or filter manually", expanded=True):
         unsafe_allow_html=True,
     )
     with st.container(border=True, key="roast_box"):
-        st.markdown("**☕ Roast Level**")
-        sel_roast = st.radio("Roast Level", sorted(in_stock["Roast_Level"].unique()),
-                              key="filter_roast", label_visibility="collapsed", horizontal=True)
+        st.markdown("**☕ How do you like your roast?**")
+        roast_options = sorted(in_stock["Roast_Level"].unique())
+        sel_roast = photo_choice(
+            [(r, ROAST_LEVEL_IMAGES.get(r)) for r in roast_options],
+            key="filter_roast", default=roast_options[0],
+        )
     with st.container(border=True, key="format_box"):
-        st.markdown("**📦 Format**")
-        sel_format = st.radio("Format", ["Capsule", "Ground", "Easy Pour", "Cold Brew Bag", "Cold Brew Can", "Concentrate", "Sampler"],
-                               key="filter_format", label_visibility="collapsed", horizontal=True)
+        st.markdown("**📦 How do you brew your coffee?**")
+        format_options = ["Capsule", "Ground", "Easy Pour", "Cold Brew Bag", "Cold Brew Can", "Concentrate", "Sampler"]
+        sel_format = photo_choice(
+            [(f, FORMAT_IMAGES.get(f)) for f in format_options],
+            key="filter_format", default=format_options[0],
+        )
     with st.container(border=True, key="milk_box"):
-        st.markdown("**🥛 Milk**")
+        st.markdown("**🥛 How do you take your coffee?**")
         sel_milk = st.radio("Milk", ["With Milk", "Black (No Milk)"],
                              key="filter_milk", label_visibility="collapsed", horizontal=True)
 
