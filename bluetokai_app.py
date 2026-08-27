@@ -672,9 +672,23 @@ if "last_recommended_product" not in st.session_state:
     st.session_state["last_recommended_product"] = None
 
 with st.expander("🔍 Or filter manually", expanded=True):
-    sel_roast = st.radio("Roast Level", sorted(in_stock["Roast_Level"].unique()), key="filter_roast", horizontal=True)
-    sel_format = st.radio("Format", ["Capsule", "Ground", "Easy Pour", "Cold Brew Bag", "Cold Brew Can", "Concentrate", "Sampler"], key="filter_format", horizontal=True)
-    sel_milk = st.radio("Milk", ["With Milk", "Black (No Milk)"], key="filter_milk", horizontal=True)
+    box_roast, box_format, box_milk = st.columns(3)
+    with box_roast:
+        with st.container(border=True):
+            st.markdown("**☕ Roast Level**")
+            sel_roast = st.radio("Roast Level", sorted(in_stock["Roast_Level"].unique()),
+                                  key="filter_roast", label_visibility="collapsed")
+    with box_format:
+        with st.container(border=True):
+            st.markdown("**📦 Format**")
+            sel_format = st.radio("Format", ["Capsule", "Ground", "Easy Pour", "Cold Brew Bag", "Cold Brew Can", "Concentrate", "Sampler"],
+                                   key="filter_format", label_visibility="collapsed")
+    with box_milk:
+        with st.container(border=True):
+            st.markdown("**🥛 Milk**")
+            sel_milk = st.radio("Milk", ["With Milk", "Black (No Milk)"],
+                                 key="filter_milk", label_visibility="collapsed")
+
     filter_submitted = st.button("Get recommendations", key="filter_submit_button")
     if filter_submitted:
         matches, prefs = get_manual_filter_recommendations(sel_roast, sel_format, sel_milk, top_n=5)
