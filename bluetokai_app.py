@@ -857,6 +857,27 @@ if "conversation_rated" not in st.session_state:
 if "last_recommended_product" not in st.session_state:
     st.session_state["last_recommended_product"] = None
 
+st.markdown(
+    """
+    <style>
+    [data-testid="stExpander"] summary {
+        background: linear-gradient(135deg, #6F4E37, #C97B3D) !important;
+        border-radius: 12px !important;
+        padding: 0.85rem 1.1rem !important;
+    }
+    [data-testid="stExpander"] summary p {
+        font-size: 1.2rem !important;
+        font-weight: 700 !important;
+        color: #FFFFFF !important;
+    }
+    [data-testid="stExpander"] summary svg {
+        fill: #FFFFFF !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 with st.expander("☕ Pick Your Perfect Coffee", expanded=True):
     st.markdown(
         """
