@@ -1117,12 +1117,34 @@ if st.session_state["last_recommended_product"] and not st.session_state["conver
         if scol.button("⭐" * star_n, key=f"rate_{star_n}"):
             log_rating(st.session_state["last_recommended_product"], star_n)
             st.session_state["conversation_rated"] = True
+            st.session_state["just_rated"] = True
             st.rerun()
 elif st.session_state["conversation_rated"]:
+    if st.session_state.get("just_rated"):
+        st.balloons()
+        st.session_state["just_rated"] = False
     st.markdown(
-        f"**Thanks for rating this chat! 🙏** I hope *{st.session_state['last_recommended_product']}* "
-        f"turns out to be everything you're hoping for — enjoy every sip! ☕✨"
+        """
+        <style>
+        .st-key-thank_you_box {
+            border: 2px solid #1F8A4C !important;
+            border-radius: 16px !important;
+            padding: 1.5rem !important;
+            background: linear-gradient(135deg, rgba(31,138,76,0.10), rgba(201,123,61,0.10)) !important;
+            text-align: center !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
     )
+    with st.container(border=True, key="thank_you_box"):
+        st.markdown("### 🎉 ☕ ✨")
+        st.markdown("**Thanks so much for rating this chat!** 🙏")
+        st.markdown(
+            f"I really hope *{st.session_state['last_recommended_product']}* "
+            f"turns out to be everything you're hoping for."
+        )
+        st.markdown("**Enjoy every sip! 💚**")
 
 # Feedback link only shows once a real Google Form URL is configured, so no
 # placeholder/broken link appears in the meantime.
