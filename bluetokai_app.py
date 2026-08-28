@@ -1266,26 +1266,25 @@ elif st.session_state["conversation_rated"]:
         st.markdown(body)
         if footer:
             st.markdown(footer)
+        st.markdown(
+            """
+            <div style="text-align: right; margin-top: 0.75rem;">
+                <a href="#page-top-anchor" style="
+                    display: inline-block;
+                    background: linear-gradient(135deg, #6F4E37, #C97B3D);
+                    color: white !important;
+                    font-weight: 700;
+                    padding: 0.6rem 1.4rem;
+                    border-radius: 10px;
+                    text-decoration: none;
+                    font-size: 1.02rem;
+                ">✨ Explore More Coffee Options</a>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
 # Feedback link only shows once a real Google Form URL is configured, so no
 # placeholder/broken link appears in the meantime.
 if GOOGLE_FORM_URL and "REPLACE_WITH" not in GOOGLE_FORM_URL:
     st.markdown(f"Enjoyed the recommendations? [Share quick feedback here]({GOOGLE_FORM_URL}) — it takes 1 minute.")
-
-if st.session_state.get("last_recommended_product"):
-    st.divider()
-    st.markdown(
-        """
-        <a href="#page-top-anchor" style="
-            display: inline-block;
-            background: linear-gradient(135deg, #6F4E37, #C97B3D);
-            color: white !important;
-            font-weight: 700;
-            padding: 0.6rem 1.4rem;
-            border-radius: 10px;
-            text-decoration: none;
-            font-size: 1.02rem;
-        ">✨ Explore More Coffee Options</a>
-        """,
-        unsafe_allow_html=True,
-    )
