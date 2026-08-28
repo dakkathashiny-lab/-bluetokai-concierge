@@ -1121,33 +1121,80 @@ if st.session_state["last_recommended_product"] and not st.session_state["conver
             log_rating(st.session_state["last_recommended_product"], star_n)
             st.session_state["conversation_rated"] = True
             st.session_state["just_rated"] = True
+            st.session_state["last_rating_stars"] = star_n
             st.rerun()
 elif st.session_state["conversation_rated"]:
+    stars_given = st.session_state.get("last_rating_stars", 5)
+    is_good_rating = stars_given >= 3
+
     if st.session_state.get("just_rated"):
-        st.balloons()
-        st.session_state["just_rated"] = False
+        if is_good_rating:
+            st.balloons()
+        else:
+            st.markdown(
+                """
+                <style>
+                @keyframes float-up {
+                    0%   { transform: translateY(0) scale(1); opacity: 1; }
+                    100% { transform: translateY(-160px) scale(1.4); opacity: 0; }
+                }
+                .floating-thumb {
+                    position: fixed;
+                    left: 50%;
+                    bottom: 80px;
+                    font-size: 2.5rem;
+                    animation: float-up 1.6s ease-out forwards;
+                    z-index: 9999;
+                    pointer-events: none;
+                }
+                </style>
+                <div class="floating-thumb">👍</div>
+                <div class="floating-thumb" style="left: 44%; animation-delay: 0.15s;">👍</div>
+                <div class="floating-thumb" style="left: 56%; animation-delay: 0.3s;">👍</div>
+                """,
+                unsafe_allow_html=True,
+            )
+    st.session_state["just_rated"] = False
+
+    if is_good_rating:
+        box_color = "#1F8A4C"
+        header = "### 🎉 ☕ ✨"
+        headline = "**Thanks so much for rating this chat!** 🙏"
+        body = (
+            f"I really hope *{st.session_state['last_recommended_product']}* "
+            f"turns out to be everything you're hoping for."
+        )
+        footer = "**Enjoy every sip! 💚**"
+    else:
+        box_color = "#8A6D3B"
+        header = "### ☕"
+        headline = "**Thanks for the feedback!** 🙏"
+        body = (
+            f"Want to try a different roast, flavor, or budget? Just ask again and "
+            f"I'll do my best to get closer to what you're looking for."
+        )
+        footer = ""
+
     st.markdown(
-        """
+        f"""
         <style>
-        .st-key-thank_you_box {
-            border: 2px solid #1F8A4C !important;
+        .st-key-thank_you_box {{
+            border: 2px solid {box_color} !important;
             border-radius: 16px !important;
             padding: 1.5rem !important;
             background: linear-gradient(135deg, rgba(31,138,76,0.10), rgba(201,123,61,0.10)) !important;
             text-align: center !important;
-        }
+        }}
         </style>
         """,
         unsafe_allow_html=True,
     )
     with st.container(border=True, key="thank_you_box"):
-        st.markdown("### 🎉 ☕ ✨")
-        st.markdown("**Thanks so much for rating this chat!** 🙏")
-        st.markdown(
-            f"I really hope *{st.session_state['last_recommended_product']}* "
-            f"turns out to be everything you're hoping for."
-        )
-        st.markdown("**Enjoy every sip! 💚**")
+        st.markdown(header)
+        st.markdown(headline)
+        st.markdown(body)
+        if footer:
+            st.markdown(footer)
 
 # Feedback link only shows once a real Google Form URL is configured, so no
 # placeholder/broken link appears in the meantime.
