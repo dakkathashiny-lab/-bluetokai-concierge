@@ -893,7 +893,8 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-with st.expander("☕ Pick Your Perfect Coffee", expanded=True):
+filter_expanded = not st.session_state.get("has_had_response", False)
+with st.expander("☕ Pick Your Perfect Coffee", expanded=filter_expanded):
     st.markdown(
         """
         <style>
