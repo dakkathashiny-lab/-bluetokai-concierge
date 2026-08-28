@@ -585,6 +585,10 @@ def log_spss_session(source, prefs, top_row, num_alternatives, completed_flag=1,
     budget_tier_preference = prefs.get("budget_tier", "")
     flavor_tier_preference = prefs.get("flavor_tier", "")
 
+    flavor_keywords_value = ", ".join(prefs.get("flavors", []))
+    if not flavor_keywords_value and flavor_tier_preference.lower().startswith("plain"):
+        flavor_keywords_value = "plain"
+
     row = {
         "session_id": st.session_state.get("session_id", ""),
         "timestamp_start": timestamp_start,
@@ -594,7 +598,7 @@ def log_spss_session(source, prefs, top_row, num_alternatives, completed_flag=1,
         "roast_preference": prefs.get("roast", ""),
         "format_preference": prefs.get("format", ""),
         "milk_preference": prefs.get("milk", ""),
-        "flavor_keywords": ", ".join(prefs.get("flavors", [])),
+        "flavor_keywords": flavor_keywords_value,
         "flavor_tier_preference": flavor_tier_preference,
         "budget_tier_preference": budget_tier_preference,
         "matched_product_name": top_row["Product_Name"],
