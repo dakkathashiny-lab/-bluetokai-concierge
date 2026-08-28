@@ -1311,13 +1311,37 @@ if st.session_state["last_recommended_product"] and not st.session_state["conver
     if GOOGLE_FORM_URL and "REPLACE_WITH" not in GOOGLE_FORM_URL:
         st.markdown(
             """
-            <div style="background:linear-gradient(135deg,#B5533C33,#B5533C11);
-                        border:2px solid #B5533C; border-radius:10px;
-                        padding:0.9rem 1.1rem; margin-bottom:0.5rem;">
-                <span style="font-size:1.15rem; font-weight:800;">📝 Don't miss this — Quick feedback?</span><br>
-                <span style="font-size:0.92rem;">
-                    <b>Please take 1 minute</b> to fill the form below — your thoughts go straight
-                    into our research. <b>Every response genuinely matters!</b>
+            <style>
+            @keyframes pulse-glow {
+                0%   { box-shadow: 0 0 0px 0px #B5533C77; }
+                50%  { box-shadow: 0 0 18px 4px #B5533C55; }
+                100% { box-shadow: 0 0 0px 0px #B5533C77; }
+            }
+            @keyframes bounce-icon {
+                0%, 100% { transform: translateY(0); }
+                50%      { transform: translateY(-5px); }
+            }
+            .feedback-pulse-box {
+                background: linear-gradient(135deg,#B5533C33,#B5533C11);
+                border: 2px solid #B5533C;
+                border-radius: 10px;
+                padding: 0.9rem 1.1rem;
+                margin-bottom: 0.5rem;
+                animation: pulse-glow 2s ease-in-out infinite;
+            }
+            .feedback-pulse-icon {
+                display: inline-block;
+                animation: bounce-icon 1.2s ease-in-out infinite;
+            }
+            </style>
+            <div class="feedback-pulse-box">
+                <span style="font-size:1.2rem; font-weight:800;">
+                    <span class="feedback-pulse-icon">⏳</span>
+                    Just 1 Minute — Your Voice Matters!
+                </span><br>
+                <span style="font-size:0.94rem;">
+                    Fill the quick form below and help shape a
+                    <b>better coffee experience for everyone</b> ☕✨
                 </span>
             </div>
             """,
@@ -1328,7 +1352,7 @@ if st.session_state["last_recommended_product"] and not st.session_state["conver
             f"{st.session_state.get('session_id', '')}"
         )
         st.markdown(
-            f'<iframe src="{embed_form_url}" width="100%" height="400" '
+            f'<iframe src="{embed_form_url}" width="100%" height="600" '
             f'frameborder="0" marginheight="0" marginwidth="0" '
             f'style="border-radius:12px; border:1px solid #C97B3D33;">Loading…</iframe>',
             unsafe_allow_html=True,
