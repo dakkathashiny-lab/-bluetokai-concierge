@@ -97,7 +97,8 @@ FORMAT_TARGET_MAP = {
 # honestly as "instant-style convenience" rather than "Instant Coffee".
 # Question 1 - "How do you brew your coffee?" - maps directly to real Format values.
 BREW_QUESTION_TARGETS = {
-    "ground/whole bean": ["ground/whole bean"],
+    "ground": ["ground/whole bean"],
+    "whole bean": ["ground/whole bean"],
     "capsule": ["capsule"],
     "easy pour": ["easy pour"],
     "cold brew": ["cold brew bag"],
@@ -603,11 +604,27 @@ def log_spss_session(source, prefs, top_row, num_alternatives, completed_flag=1,
         "rule_based_score_sc": rule_based_score_sc if rule_based_score_sc is not None else top_row["compatibility_score"],
     }
 
-    is_new = not os.path.exists(SESSION_LOG_FILE)
+    file_exists = os.path.exists(SESSION_LOG_FILE)
+    needs_new_header = not file_exists
+    if file_exists:
+        try:
+            with open(SESSION_LOG_FILE, "r", newline="", encoding="utf-8") as f:
+                existing_header = next(csv.reader(f), [])
+            if existing_header != SESSION_LOG_COLUMNS:
+                # Schema changed since this file was created (e.g. new columns
+                # added). Archive the old file instead of silently appending
+                # mismatched rows, which corrupts the CSV and crashes any
+                # reader (including the admin dashboard).
+                archive_name = SESSION_LOG_FILE.replace(".csv", f"_archived_{datetime.now().strftime('%Y%m%d%H%M%S')}.csv")
+                os.rename(SESSION_LOG_FILE, archive_name)
+                needs_new_header = True
+        except (OSError, StopIteration):
+            needs_new_header = True
+
     try:
         with open(SESSION_LOG_FILE, "a", newline="", encoding="utf-8") as f:
             writer = csv.DictWriter(f, fieldnames=SESSION_LOG_COLUMNS)
-            if is_new:
+            if needs_new_header:
                 writer.writeheader()
             writer.writerow(row)
     except OSError:
@@ -728,8 +745,24 @@ if query_params.get("admin") == ADMIN_SECRET:
     st.subheader("📊 SPSS Session Log")
     st.caption("One row per recommendation, with structured research variables (roast/format/milk preference, matched product, price tier, compatibility score, match flags).")
     if os.path.exists(SESSION_LOG_FILE):
-        session_df = pd.read_csv(SESSION_LOG_FILE)
-        if not session_df.empty:
+        try:
+            session_df = pd.read_csv(SESSION_LOG_FILE)
+        except Exception:
+            session_df = None
+            st.error(
+                "session_log.csv appears to be corrupted (this can happen if the file's "
+                "columns changed between app updates while old data was still in it). "
+                "Click below to archive the broken file and start fresh - no other data is affected."
+            )
+            if st.button("🗑️ Archive corrupted file and start fresh", key="fix_corrupt_session"):
+                archive_name = SESSION_LOG_FILE.replace(".csv", f"_archived_{datetime.now().strftime('%Y%m%d%H%M%S')}.csv")
+                try:
+                    os.rename(SESSION_LOG_FILE, archive_name)
+                    st.success("Done - session_log.csv will start clean on the next recommendation.")
+                    st.rerun()
+                except OSError as e:
+                    st.error(f"Couldn't archive the file: {e}")
+        if session_df is not None and not session_df.empty:
             col1, col2, col3 = st.columns(3)
             col1.metric("Total sessions", len(session_df))
             col2.metric("Chat vs Manual", f"{(session_df['source']=='chat').sum()} / {(session_df['source']=='manual').sum()}")
@@ -807,7 +840,7 @@ with st.expander("🔍 Or filter manually", expanded=True):
     with st.container(border=True, key="brew_box"):
         st.markdown("**📦 How do you brew your coffee?**")
         sel_format = st.radio("How do you brew your coffee?",
-                               ["Ground/Whole Bean", "Capsule", "Easy Pour", "Cold Brew", "Concentrate/Drop", "Ready-to-Drink Can"],
+                               ["Ground", "Whole Bean", "Capsule", "Easy Pour", "Cold Brew", "Concentrate/Drop", "Ready-to-Drink Can"],
                                key="filter_format", label_visibility="collapsed", horizontal=True)
     with st.container(border=True, key="flavor_box"):
         st.markdown("**🍫 What flavor do you crave?**")
