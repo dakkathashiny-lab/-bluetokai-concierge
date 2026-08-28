@@ -1166,14 +1166,14 @@ elif st.session_state["conversation_rated"]:
         )
         footer = "**Enjoy every sip! 💚**"
     else:
-        box_color = "#8A6D3B"
-        header = "### ☕"
-        headline = "**Thanks for the feedback!** 🙏"
+        box_color = "#C97B3D"
+        header = "### 🙌 ☕ 💫"
+        headline = "**Thanks for sharing your feedback!**"
         body = (
-            f"Want to try a different roast, flavor, or budget? Just ask again and "
-            f"I'll do my best to get closer to what you're looking for."
+            "Your input genuinely helps make every next cup better. "
+            "Fancy a fresh pick? Just ask again — I'm ready to find something you'll love!"
         )
-        footer = ""
+        footer = "**Let's find your perfect cup! ☕✨**"
 
     st.markdown(
         f"""
@@ -1182,7 +1182,7 @@ elif st.session_state["conversation_rated"]:
             border: 2px solid {box_color} !important;
             border-radius: 16px !important;
             padding: 1.5rem !important;
-            background: linear-gradient(135deg, rgba(31,138,76,0.10), rgba(201,123,61,0.10)) !important;
+            background: linear-gradient(135deg, {box_color}22, {box_color}0D) !important;
             text-align: center !important;
         }}
         .st-key-thank_you_box p, .st-key-thank_you_box li {{
