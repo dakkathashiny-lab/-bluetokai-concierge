@@ -1088,22 +1088,27 @@ def trigger_scroll_to_result():
     st.markdown("""
         <script>
         (function() {
-            function getDoc() {
-                try { if (window.parent && window.parent.document) return window.parent.document; } catch (e) {}
-                return document;
+            function getWin() {
+                try { if (window.parent && window.parent.document) return window.parent; } catch (e) {}
+                return window;
             }
-            function tryScroll(attemptsLeft) {
-                const doc = getDoc();
+            function tryJump(attemptsLeft) {
+                const win = getWin();
+                const doc = win.document;
                 const anchor = doc.getElementById("latest-response-anchor");
                 if (anchor) {
+                    // Same native mechanism as a manually clicked <a href="#anchor">
+                    // link - more reliable across embedded/iframe contexts than
+                    // scrollIntoView, since it's real browser anchor navigation.
+                    win.location.hash = "latest-response-anchor";
                     anchor.scrollIntoView({behavior: "smooth", block: "start"});
                     return;
                 }
                 if (attemptsLeft > 0) {
-                    setTimeout(function() { tryScroll(attemptsLeft - 1); }, 200);
+                    setTimeout(function() { tryJump(attemptsLeft - 1); }, 200);
                 }
             }
-            tryScroll(15);
+            tryJump(20);
         })();
         </script>
     """, unsafe_allow_html=True)
