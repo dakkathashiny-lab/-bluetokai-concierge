@@ -1065,29 +1065,21 @@ def render_product_cards(product_rows):
     top_row = product_rows.iloc[0]
     other_rows = product_rows.iloc[1:]
 
-    # Highlighted "Our Pick" card - bigger image, clearly set apart
+    # Highlighted "Our Pick" card - heading shows first (always immediately
+    # visible, even on mobile where columns stack vertically), image and
+    # details follow right below it.
     with st.container(border=True):
-        st.markdown(
-            """
-            <style>
-            .our-pick-image img {
-                max-width: 180px !important;
-                margin: 0 auto !important;
-                display: block !important;
-                border-radius: 8px !important;
-            }
-            </style>
-            """,
-            unsafe_allow_html=True,
-        )
+        st.markdown(f"### ⭐ Our Pick: {top_row['Product_Name']}")
         pick_img_col, pick_info_col = st.columns([1, 2])
         with pick_img_col:
             if pd.notna(top_row.get("Image_URL")):
-                st.markdown('<div class="our-pick-image">', unsafe_allow_html=True)
-                st.image(top_row["Image_URL"], use_container_width=True)
-                st.markdown('</div>', unsafe_allow_html=True)
+                st.markdown(
+                    f'<img src="{top_row["Image_URL"]}" '
+                    f'style="max-width:170px; width:100%; display:block; margin:0 auto; '
+                    f'border-radius:8px;">',
+                    unsafe_allow_html=True,
+                )
         with pick_info_col:
-            st.markdown(f"### ⭐ Our Pick: {top_row['Product_Name']}")
             st.markdown(
                 f"**{top_row['Roast_Level']} roast** · {top_row['Format'].split('(')[0].strip()}  \n"
                 f"Flavor: {top_row['Flavor_Notes']}  \n"
