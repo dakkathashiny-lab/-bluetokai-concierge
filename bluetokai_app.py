@@ -888,13 +888,31 @@ st.markdown(
     [data-testid="stExpander"] summary svg {
         fill: #FFFFFF !important;
     }
+    .pick-coffee-header {
+        background: linear-gradient(135deg, #6F4E37, #C97B3D);
+        border-radius: 12px 12px 0 0;
+        padding: 0.85rem 1.1rem;
+        font-size: 1.2rem;
+        font-weight: 700;
+        color: #FFFFFF;
+        margin-bottom: 0;
+    }
+    .st-key-pick_coffee_box {
+        border: 1px solid #C97B3D33 !important;
+        border-top: none !important;
+        border-radius: 0 0 12px 12px !important;
+        padding: 1rem !important;
+        margin-bottom: 1rem !important;
+    }
     </style>
+    <div class="pick-coffee-header">☕ Pick Your Perfect Coffee</div>
     """,
     unsafe_allow_html=True,
 )
 
-filter_expanded = not st.session_state.get("has_had_response", False)
-with st.expander("☕ Pick Your Perfect Coffee", expanded=filter_expanded):
+# Plain always-visible container (not a collapsible expander) - this can
+# never accidentally close on the user, since there's no toggle at all.
+with st.container(key="pick_coffee_box"):
     st.markdown(
         """
         <style>
