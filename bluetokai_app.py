@@ -1085,11 +1085,12 @@ if st.session_state.get("result_source", "chat") == "chat" and len(st.session_st
         unsafe_allow_html=True,
     )
 
-st.divider()
-
 # If the chat box (or a quick-start button) produced the most recent result,
 # show it right here - directly under the chat box, and auto-scroll to it.
+# (No divider shown here when the manual filter was the source, to avoid an
+# empty-looking gap with nothing in it.)
 if st.session_state.get("result_source", "chat") == "chat":
+    st.divider()
     render_latest_result()
     if st.session_state.get("scroll_to_latest"):
         st.session_state["scroll_to_latest"] = False
