@@ -1328,7 +1328,7 @@ if st.session_state["last_recommended_product"] and not st.session_state["conver
             f"{st.session_state.get('session_id', '')}"
         )
         st.markdown(
-            f'<iframe src="{embed_form_url}" width="100%" height="550" '
+            f'<iframe src="{embed_form_url}" width="100%" height="400" '
             f'frameborder="0" marginheight="0" marginwidth="0" '
             f'style="border-radius:12px; border:1px solid #C97B3D33;">Loading…</iframe>',
             unsafe_allow_html=True,
@@ -1337,7 +1337,17 @@ if st.session_state["last_recommended_product"] and not st.session_state["conver
 
     # Star rating always shown, right below the form - tapping a star both
     # logs the rating and finalizes this recommendation.
-    st.caption("Before you go — how helpful was this chat overall?")
+    st.markdown(
+        """
+        <div style="background:linear-gradient(135deg,#3D6FB533,#3D6FB511);
+                    border:2px solid #3D6FB5; border-radius:10px;
+                    padding:0.8rem 1.1rem; margin:0.5rem 0;">
+            <span style="font-size:1.1rem; font-weight:800;">⭐ Before you go —</span>
+            <span style="font-size:1rem;"> how helpful was this chat overall?</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
     star_cols = st.columns(5)
     for star_n, scol in enumerate(star_cols, start=1):
         if scol.button("⭐" * star_n, key=f"rate_{star_n}"):
