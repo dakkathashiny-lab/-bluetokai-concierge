@@ -823,7 +823,7 @@ st.markdown(
     .st-key-hero_banner {
         background: linear-gradient(135deg, #3D2B1F, #6F4E37 55%, #C97B3D) !important;
         border-radius: 18px !important;
-        padding: 1.75rem 2rem !important;
+        padding: 1.1rem 1.4rem !important;
         margin-bottom: 1rem !important;
         border: none !important;
     }
@@ -831,13 +831,26 @@ st.markdown(
         color: #FFFFFF !important;
     }
     .st-key-hero_banner h1 {
-        font-size: 2.1rem !important;
-        margin-bottom: 0.4rem !important;
+        font-size: 1.5rem !important;
+        margin-bottom: 0.3rem !important;
+        line-height: 1.25 !important;
     }
     .st-key-hero_banner p {
-        font-size: 1.05rem !important;
+        font-size: 0.9rem !important;
         opacity: 0.95 !important;
         margin-bottom: 0 !important;
+        line-height: 1.35 !important;
+    }
+    @media (max-width: 480px) {
+        .st-key-hero_banner {
+            padding: 0.85rem 1.1rem !important;
+        }
+        .st-key-hero_banner h1 {
+            font-size: 1.15rem !important;
+        }
+        .st-key-hero_banner p {
+            font-size: 0.8rem !important;
+        }
     }
     </style>
     """,
