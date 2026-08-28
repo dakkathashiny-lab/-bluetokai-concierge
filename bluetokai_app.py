@@ -327,10 +327,12 @@ def get_llm_recommendation(user_text, prefs):
     real catalog before ever being shown - if it fails on any front (missing
     key, no API key configured, network error, invalid name), this returns
     None and the caller falls back to the rule-based engine. This function
-    never lets an untrusted or invalid result reach the user."""
+    never lets an untrusted or invalid result reach the user. The specific
+    reason for any failure is stashed in session_state for diagnostics."""
     try:
         api_key = st.secrets["GROQ_API_KEY"]
     except Exception:
+        st.session_state["last_llm_error"] = "No GROQ_API_KEY found in Streamlit Secrets."
         return None  # no key configured - silently use rule-based engine
 
     catalog = _build_catalog_json()
@@ -373,12 +375,15 @@ def get_llm_recommendation(user_text, prefs):
             timeout=8,
         )
         latency_ms = int((time.time() - start) * 1000)
-        response.raise_for_status()
+        if response.status_code != 200:
+            st.session_state["last_llm_error"] = f"HTTP {response.status_code}: {response.text[:500]}"
+            return None
         content = response.json()["choices"][0]["message"]["content"]
         parsed = json.loads(content)
 
         matched_name = str(parsed.get("matched_product_name", "")).strip()
         if matched_name not in catalog_names:
+            st.session_state["last_llm_error"] = f"Model returned a product not in the catalog: '{matched_name}'"
             return None  # hallucinated/invalid name - fall back, never shown to user
 
         score = parsed.get("compatibility_score", 0)
@@ -387,6 +392,7 @@ def get_llm_recommendation(user_text, prefs):
         except (TypeError, ValueError):
             score = 0.0
 
+        st.session_state["last_llm_error"] = None
         return {
             "matched_product_name": matched_name,
             "reason": str(parsed.get("reason", "")).strip(),
@@ -394,7 +400,8 @@ def get_llm_recommendation(user_text, prefs):
             "llm_model_name": GROQ_MODEL,
             "llm_latency_ms": latency_ms,
         }
-    except Exception:
+    except Exception as e:
+        st.session_state["last_llm_error"] = f"{type(e).__name__}: {e}"
         return None  # any network/parsing failure - fall back, no crash
 
 
@@ -742,6 +749,25 @@ if query_params.get("admin") == ADMIN_SECRET:
     else:
         st.info("No interactions yet.")
     st.divider()
+    st.subheader("🔧 LLM Diagnostic")
+    st.caption("Shows the exact reason the last AI call failed, if it did. Click below to test the AI connection directly, right now.")
+    try:
+        has_key = bool(st.secrets["GROQ_API_KEY"])
+    except Exception:
+        has_key = False
+    st.write("GROQ_API_KEY configured in Secrets:", "✅ Yes" if has_key else "❌ No")
+    if st.button("🧪 Test AI connection now", key="test_llm_btn"):
+        test_result = get_llm_recommendation(
+            "strong dark roast for espresso",
+            {"roast": "dark"},
+        )
+        if test_result is not None:
+            st.success(f"✅ AI is working! Picked: {test_result['matched_product_name']} (model: {test_result['llm_model_name']})")
+        else:
+            st.error(f"❌ AI call failed. Reason: {st.session_state.get('last_llm_error', 'Unknown - no error captured.')}")
+    if st.session_state.get("last_llm_error"):
+        st.warning(f"Most recent AI failure reason: {st.session_state['last_llm_error']}")
+    st.divider()
     st.subheader("📊 SPSS Session Log")
     st.caption("One row per recommendation, with structured research variables (roast/format/milk preference, matched product, price tier, compatibility score, match flags).")
     if os.path.exists(SESSION_LOG_FILE):
@@ -864,11 +890,39 @@ with st.expander("🔍 Or filter manually", expanded=True):
 
     filter_submitted = st.button("Get recommendations", key="filter_submit_button")
     if filter_submitted:
-        matches, prefs = get_manual_filter_recommendations(sel_roast, sel_format, sel_milk,
-                                                             flavor_choice=sel_flavor, budget_choice=sel_budget, top_n=5)
+        rule_based_matches, prefs = get_manual_filter_recommendations(
+            sel_roast, sel_format, sel_milk, flavor_choice=sel_flavor, budget_choice=sel_budget, top_n=5
+        )
+        rule_based_top = rule_based_matches.iloc[0]
         reason = build_reason_text(prefs)
-        top = matches.iloc[0]
-        reply = f"Matched because you wanted: {reason}. Here's my pick, plus a few other options that fit well too:"
+
+        # Try the AI first, exactly like the chat box - rule-based (the hard-
+        # filtered result above) is only used as the fallback if the AI is
+        # unavailable, errors out, or returns something outside the catalog.
+        selection_text = (
+            f"I selected: {sel_format} brew format, {sel_flavor} flavor, "
+            f"{sel_milk}, {sel_roast} roast, {sel_budget} budget tier."
+        )
+        llm_result = get_llm_recommendation(selection_text, prefs)
+
+        if llm_result is not None:
+            method = "llm"
+            llm_model_name = llm_result["llm_model_name"]
+            llm_latency_ms = llm_result["llm_latency_ms"]
+            matched_row = in_stock[in_stock["Product_Name"] == llm_result["matched_product_name"]].iloc[0].copy()
+            matched_row["compatibility_score"] = llm_result["compatibility_score"]
+            alt_pool = rule_based_matches[rule_based_matches["Product_Name"] != matched_row["Product_Name"]]
+            matches = pd.concat([matched_row.to_frame().T, alt_pool], ignore_index=True).head(5)
+            top = matched_row
+            reply = llm_result["reason"] or f"Matched because you wanted: {reason}. Here's my pick, plus a few other options that fit well too:"
+        else:
+            method = "rule_based"
+            llm_model_name = ""
+            llm_latency_ms = 0
+            matches = rule_based_matches
+            top = rule_based_top
+            reply = f"Matched because you wanted: {reason}. Here's my pick, plus a few other options that fit well too:"
+
         st.session_state.setdefault("messages", [])
         st.session_state["messages"].append(("user", f"Manual filter: {reason}", None))
         st.session_state["messages"].append(("assistant", reply, matches.head(5)))
@@ -877,7 +931,11 @@ with st.expander("🔍 Or filter manually", expanded=True):
         st.session_state["result_source"] = "manual"
         st.session_state["scroll_to_latest"] = True
         log_interaction(f"Manual filter: {reason}", prefs, len(matches))
-        log_spss_session("manual", prefs, top, len(matches) - 1)
+        log_spss_session(
+            "manual", prefs, top, len(matches) - 1,
+            recommendation_method=method, llm_model_name=llm_model_name,
+            llm_latency_ms=llm_latency_ms, rule_based_score_sc=rule_based_top["compatibility_score"],
+        )
         st.session_state.setdefault("search_history", [])
         st.session_state["search_history"].append({
             "query": f"Manual filter: {reason}", "reply": reply, "products": matches.head(5),
