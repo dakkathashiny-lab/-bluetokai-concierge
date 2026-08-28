@@ -1119,6 +1119,12 @@ if st.session_state["last_recommended_product"] and not st.session_state["conver
             st.session_state["conversation_rated"] = True
             st.rerun()
 elif st.session_state["conversation_rated"]:
-    st.caption("Thanks for rating this chat! 🙏")
+    st.markdown(
+        f"**Thanks for rating this chat! 🙏** I hope *{st.session_state['last_recommended_product']}* "
+        f"turns out to be everything you're hoping for — enjoy every sip! ☕✨"
+    )
 
-st.markdown(f"Enjoyed the recommendations? [Share quick feedback here]({GOOGLE_FORM_URL}) — it takes 1 minute.")
+# Feedback link only shows once a real Google Form URL is configured, so no
+# placeholder/broken link appears in the meantime.
+if GOOGLE_FORM_URL and "REPLACE_WITH" not in GOOGLE_FORM_URL:
+    st.markdown(f"Enjoyed the recommendations? [Share quick feedback here]({GOOGLE_FORM_URL}) — it takes 1 minute.")
