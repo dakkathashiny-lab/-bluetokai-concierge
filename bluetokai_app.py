@@ -18,7 +18,8 @@ SESSION_LOG_FILE = "session_log.csv"
 SESSION_LOG_COLUMNS = [
     "session_id", "timestamp_start", "timestamp_submit", "interaction_duration_sec",
     "source", "roast_preference", "format_preference", "milk_preference",
-    "flavor_keywords", "matched_product_name", "price_inr", "price_tier",
+    "flavor_keywords", "flavor_tier_preference", "budget_tier_preference",
+    "matched_product_name", "price_inr", "price_tier",
     "compatibility_score_sc", "roast_match_flag", "format_match_flag",
     "num_alternatives_shown", "completed_flag",
     "recommendation_method", "llm_model_name", "llm_latency_ms", "rule_based_score_sc",
@@ -94,6 +95,35 @@ FORMAT_TARGET_MAP = {
 # Hot Water" covers Easy Pour and Drop - Blue Tokai doesn't sell literal
 # instant coffee (confirmed against their own site), so this is labeled
 # honestly as "instant-style convenience" rather than "Instant Coffee".
+# Question 1 - "How do you brew your coffee?" - maps directly to real Format values.
+BREW_QUESTION_TARGETS = {
+    "ground/whole bean": ["ground/whole bean"],
+    "capsule": ["capsule"],
+    "easy pour": ["easy pour"],
+    "cold brew": ["cold brew bag"],
+    "concentrate/drop": ["drop"],
+    "ready-to-drink can": ["cold brew can"],
+}
+
+# Question 2 - "What flavor do you crave?" - matched against Flavor_Notes text.
+# "Plain / Classic" has no specific keyword; it means no flavor filter is applied.
+FLAVOR_TIER_KEYWORDS = {
+    "plain / classic (no specific flavor)": [],
+    "chocolate & cocoa": ["chocolate", "cocoa"],
+    "fruity & berry": ["fruit", "berry", "cherry", "plum", "grape", "peach", "apple", "raisin", "fig"],
+    "nutty & hazelnut": ["nut", "hazelnut", "almond", "walnut"],
+    "floral & citrus": ["floral", "citrus", "orange", "lemon", "jasmine", "flower", "mandarin"],
+    "caramel & honey": ["caramel", "honey", "toffee", "butterscotch", "jaggery"],
+}
+
+# Question 5 - "Preferred budget tier per bag?" - direct Price_INR ranges, used
+# to measure Willingness to Pay (WTP) for the SPSS analysis.
+BUDGET_TIER_RANGES = {
+    "everyday essential (under ₹500)": (0, 499),
+    "classic reserve (₹500 – ₹800)": (500, 799),
+    "connoisseur micro-lot (₹800+)": (800, 999999),
+}
+
 BREWING_METHOD_TARGETS = {
     "filter coffee": ["ground/whole bean", "easy pour"],
     "french press": ["ground/whole bean"],
@@ -367,52 +397,90 @@ def get_llm_recommendation(user_text, prefs):
         return None  # any network/parsing failure - fall back, no crash
 
 
-def get_manual_filter_recommendations(roast_choice, brew_choice, milk_choice, top_n=5):
-    """Manual-filter dropdowns are exact structured choices, not fuzzy text, so
-    they're applied as hard filters (guaranteeing e.g. Capsule really returns
-    capsules) rather than blended into the fuzzy chat-scoring weights. Falls
-    back to progressively looser filtering rather than ever returning empty."""
+def get_manual_filter_recommendations(roast_choice, brew_choice, milk_choice,
+                                       flavor_choice=None, budget_choice=None, top_n=5):
+    """Manual-filter selections are exact structured choices, not fuzzy text, so
+    Brew format / Roast / Budget are applied as hard filters (guaranteeing e.g.
+    Capsule really returns capsules), with progressive relaxation so this never
+    returns empty. Milk and Flavor are treated as soft preferences (used to
+    rank/sort, not to exclude) since neither is a real product attribute in
+    the catalog - hard-filtering on them risked contradicting an exact roast
+    choice (e.g. "Medium" roast + "With Milk" is otherwise unsatisfiable)."""
     df = in_stock.copy()
-    filtered = df.copy()
 
-    if roast_choice != "Any":
-        filtered = filtered[filtered["Roast_Level"].str.lower() == roast_choice.lower()]
+    def apply_hard_filters(source, use_roast, use_brew, use_budget):
+        f = source
+        if use_roast and roast_choice and roast_choice != "Any" and not f.empty:
+            f = f[f["Roast_Level"].str.lower() == roast_choice.lower()]
+        if use_brew and brew_choice and brew_choice != "Any" and not f.empty:
+            targets = BREW_QUESTION_TARGETS.get(brew_choice.lower(), [brew_choice.lower()])
+            f = f[f["Format"].str.lower().apply(lambda x: any(t in x for t in targets))]
+        if use_budget and budget_choice and not f.empty:
+            lo, hi = BUDGET_TIER_RANGES.get(budget_choice.lower(), (0, 999999))
+            f = f[(f["Price_INR"] >= lo) & (f["Price_INR"] <= hi)]
+        return f
 
-    if brew_choice != "Any":
-        targets = BREWING_METHOD_TARGETS.get(brew_choice.lower(), [brew_choice.lower()])
-        mask = filtered["Format"].str.lower().apply(lambda f: any(t in f for t in targets))
-        filtered = filtered[mask]
-
-    if milk_choice == "With Milk":
-        filtered = filtered[filtered["Roast_Level"].str.lower().str.contains("dark", na=False)]
-    elif milk_choice == "Black - No Milk":
-        filtered = filtered[filtered["Roast_Level"].str.lower().str.contains("light", na=False)]
-
-    if filtered.empty:
-        # No dead ends: relax milk first, then roast, but keep brewing method if possible
-        relaxed = df.copy()
-        if brew_choice != "Any":
-            targets = BREWING_METHOD_TARGETS.get(brew_choice.lower(), [brew_choice.lower()])
-            mask = relaxed["Format"].str.lower().apply(lambda f: any(t in f for t in targets))
-            fmt_only = relaxed[mask]
-            if not fmt_only.empty:
-                relaxed = fmt_only
-        filtered = relaxed if not relaxed.empty else df.copy()
+    # Try with all 3 hard filters, then relax progressively (budget first,
+    # then brew format, keeping roast as long as possible) until non-empty.
+    relax_order = [
+        dict(use_roast=True, use_brew=True, use_budget=True),
+        dict(use_roast=True, use_brew=True, use_budget=False),
+        dict(use_roast=True, use_brew=False, use_budget=False),
+        dict(use_roast=False, use_brew=False, use_budget=False),
+    ]
+    filtered = df
+    for opts in relax_order:
+        filtered = apply_hard_filters(df, **opts)
+        if not filtered.empty:
+            break
 
     filtered = filtered.copy()
+
+    # Soft preferences: flavor and milk influence ranking, not exclusion.
+    def flavor_score(notes):
+        if not flavor_choice:
+            return 0
+        keywords = FLAVOR_TIER_KEYWORDS.get(flavor_choice.lower(), [])
+        if not keywords or not isinstance(notes, str):
+            return 0
+        notes_l = notes.lower()
+        return 1 if any(k in notes_l for k in keywords) else 0
+
+    def milk_score(roast_level):
+        if not isinstance(roast_level, str):
+            return 0
+        roast_l = roast_level.lower()
+        if milk_choice == "With Milk":
+            return 1 if "dark" in roast_l else 0
+        elif milk_choice == "Black - No Milk":
+            return 1 if "light" in roast_l else 0
+        return 0
+
+    filtered["_flavor_score"] = filtered["Flavor_Notes"].apply(flavor_score)
+    filtered["_milk_score"] = filtered["Roast_Level"].apply(milk_score)
     filtered["compatibility_score"] = 100.0
+    filtered = filtered.sort_values(
+        ["_flavor_score", "_milk_score", "Price_INR"], ascending=[False, False, True]
+    ).drop(columns=["_flavor_score", "_milk_score"])
 
     prefs = {}
-    if roast_choice != "Any":
+    if roast_choice and roast_choice != "Any":
         prefs["roast"] = roast_choice.lower()
-    if brew_choice != "Any":
+    if brew_choice and brew_choice != "Any":
         prefs["format"] = brew_choice.lower()
     if milk_choice == "With Milk":
         prefs["milk"] = "with milk"
     elif milk_choice == "Black - No Milk":
         prefs["milk"] = "black"
+    if flavor_choice:
+        prefs["flavor_tier"] = flavor_choice
+        kws = FLAVOR_TIER_KEYWORDS.get(flavor_choice.lower(), [])
+        if kws:
+            prefs["flavors"] = kws[:2]  # short, readable subset for the reply text
+    if budget_choice:
+        prefs["budget_tier"] = budget_choice
 
-    return filtered.sort_values("Price_INR").head(top_n), prefs
+    return filtered.head(top_n), prefs
 
 
 def format_price(row):
@@ -497,12 +565,17 @@ def log_spss_session(source, prefs, top_row, num_alternatives, completed_flag=1,
     roast_match_flag = int(str(prefs.get("roast", "")).strip().lower() == str(top_row["Roast_Level"]).strip().lower())
     pref_format = str(prefs.get("format", "")).strip().lower()
     row_format_l = str(top_row["Format"]).strip().lower()
-    if pref_format in BREWING_METHOD_TARGETS:
+    if pref_format in BREW_QUESTION_TARGETS:
+        format_match_flag = int(any(t in row_format_l for t in BREW_QUESTION_TARGETS[pref_format]))
+    elif pref_format in BREWING_METHOD_TARGETS:
         format_match_flag = int(any(t in row_format_l for t in BREWING_METHOD_TARGETS[pref_format]))
     elif "format" in prefs:
         format_match_flag = int(FORMAT_TARGET_MAP.get(pref_format, "") in row_format_l)
     else:
         format_match_flag = 0
+
+    budget_tier_preference = prefs.get("budget_tier", "")
+    flavor_tier_preference = prefs.get("flavor_tier", "")
 
     row = {
         "session_id": st.session_state.get("session_id", ""),
@@ -514,6 +587,8 @@ def log_spss_session(source, prefs, top_row, num_alternatives, completed_flag=1,
         "format_preference": prefs.get("format", ""),
         "milk_preference": prefs.get("milk", ""),
         "flavor_keywords": ", ".join(prefs.get("flavors", [])),
+        "flavor_tier_preference": flavor_tier_preference,
+        "budget_tier_preference": budget_tier_preference,
         "matched_product_name": top_row["Product_Name"],
         "price_inr": top_row["Price_INR"],
         "price_tier": get_price_tier(top_row["Price_INR"]),
@@ -695,17 +770,17 @@ with st.expander("🔍 Or filter manually", expanded=True):
     st.markdown(
         """
         <style>
-        .st-key-roast_box {
-            border-left: 4px solid #6F4E37 !important;
-            border-radius: 10px !important;
-            padding: 0.75rem 1rem !important;
-            background-color: rgba(111, 78, 55, 0.04) !important;
-        }
-        .st-key-format_box {
+        .st-key-brew_box {
             border-left: 4px solid #2E7D6B !important;
             border-radius: 10px !important;
             padding: 0.75rem 1rem !important;
             background-color: rgba(46, 125, 107, 0.04) !important;
+        }
+        .st-key-flavor_box {
+            border-left: 4px solid #B5533C !important;
+            border-radius: 10px !important;
+            padding: 0.75rem 1rem !important;
+            background-color: rgba(181, 83, 60, 0.04) !important;
         }
         .st-key-milk_box {
             border-left: 4px solid #C97B3D !important;
@@ -713,27 +788,51 @@ with st.expander("🔍 Or filter manually", expanded=True):
             padding: 0.75rem 1rem !important;
             background-color: rgba(201, 123, 61, 0.04) !important;
         }
+        .st-key-roast_box {
+            border-left: 4px solid #6F4E37 !important;
+            border-radius: 10px !important;
+            padding: 0.75rem 1rem !important;
+            background-color: rgba(111, 78, 55, 0.04) !important;
+        }
+        .st-key-budget_box {
+            border-left: 4px solid #3D6FB5 !important;
+            border-radius: 10px !important;
+            padding: 0.75rem 1rem !important;
+            background-color: rgba(61, 111, 181, 0.04) !important;
+        }
         </style>
         """,
         unsafe_allow_html=True,
     )
-    with st.container(border=True, key="roast_box"):
-        st.markdown("**☕ Roast Level**")
-        sel_roast = st.radio("Roast Level", sorted(in_stock["Roast_Level"].unique()),
-                              key="filter_roast", label_visibility="collapsed", horizontal=True)
-    with st.container(border=True, key="format_box"):
-        st.markdown("**📦 How Do You Brew?**")
-        sel_format = st.radio("How Do You Brew?", ["Filter Coffee", "French Press", "Moka Pot / Stovetop",
-                                                     "Espresso Machine / Capsule", "Quick - Just Hot Water", "Cold Brew"],
+    with st.container(border=True, key="brew_box"):
+        st.markdown("**📦 How do you brew your coffee?**")
+        sel_format = st.radio("How do you brew your coffee?",
+                               ["Ground/Whole Bean", "Capsule", "Easy Pour", "Cold Brew", "Concentrate/Drop", "Ready-to-Drink Can"],
                                key="filter_format", label_visibility="collapsed", horizontal=True)
+    with st.container(border=True, key="flavor_box"):
+        st.markdown("**🍫 What flavor do you crave?**")
+        sel_flavor = st.radio("What flavor do you crave?",
+                               ["Plain / Classic (No Specific Flavor)", "Chocolate & Cocoa", "Fruity & Berry",
+                                "Nutty & Hazelnut", "Floral & Citrus", "Caramel & Honey"],
+                               key="filter_flavor", label_visibility="collapsed", horizontal=True)
     with st.container(border=True, key="milk_box"):
-        st.markdown("**🥛 Milk**")
-        sel_milk = st.radio("Milk", ["With Milk", "Black - No Milk"],
+        st.markdown("**🥛 Black or with milk?**")
+        sel_milk = st.radio("Black or with milk?", ["With Milk", "Black - No Milk"],
                              key="filter_milk", label_visibility="collapsed", horizontal=True)
+    with st.container(border=True, key="roast_box"):
+        st.markdown("**☕ Roast preference?**")
+        sel_roast = st.radio("Roast preference?", ["Light", "Medium", "Medium-Dark", "Dark"],
+                              key="filter_roast", label_visibility="collapsed", horizontal=True)
+    with st.container(border=True, key="budget_box"):
+        st.markdown("**💰 Preferred budget tier per bag?**")
+        sel_budget = st.radio("Preferred budget tier per bag?",
+                               ["Everyday Essential (Under ₹500)", "Classic Reserve (₹500 – ₹800)", "Connoisseur Micro-Lot (₹800+)"],
+                               key="filter_budget", label_visibility="collapsed", horizontal=True)
 
     filter_submitted = st.button("Get recommendations", key="filter_submit_button")
     if filter_submitted:
-        matches, prefs = get_manual_filter_recommendations(sel_roast, sel_format, sel_milk, top_n=5)
+        matches, prefs = get_manual_filter_recommendations(sel_roast, sel_format, sel_milk,
+                                                             flavor_choice=sel_flavor, budget_choice=sel_budget, top_n=5)
         reason = build_reason_text(prefs)
         top = matches.iloc[0]
         reply = f"Matched because you wanted: {reason}. Here's my pick, plus a few other options that fit well too:"
