@@ -675,6 +675,7 @@ def process_message(text):
         reply = f"Matched because you wanted: {reason}. Here's my pick, plus a few other options that fit well too:"
 
     st.session_state["last_recommended_product"] = f"Blue Tokai — {top['Product_Name']}"
+    st.session_state["conversation_rated"] = False
     st.session_state["has_had_response"] = True
     log_interaction(text, prefs, len(matches))
     log_spss_session(
@@ -951,6 +952,7 @@ with st.expander("🔍 Or filter manually", expanded=True):
         st.session_state["messages"].append(("user", f"Manual filter: {reason}", None))
         st.session_state["messages"].append(("assistant", reply, matches.head(5)))
         st.session_state["last_recommended_product"] = f"Blue Tokai — {top['Product_Name']}"
+        st.session_state["conversation_rated"] = False
         st.session_state["has_had_response"] = True
         st.session_state["result_source"] = "manual"
         st.session_state["scroll_to_latest"] = True
