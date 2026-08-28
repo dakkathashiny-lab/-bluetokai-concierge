@@ -817,6 +817,8 @@ if query_params.get("admin") == ADMIN_SECRET:
         st.info("No session log data yet.")
     st.stop()
 
+st.markdown('<div id="page-top-anchor"></div>', unsafe_allow_html=True)
+
 st.markdown(
     """
     <style>
@@ -1269,3 +1271,21 @@ elif st.session_state["conversation_rated"]:
 # placeholder/broken link appears in the meantime.
 if GOOGLE_FORM_URL and "REPLACE_WITH" not in GOOGLE_FORM_URL:
     st.markdown(f"Enjoyed the recommendations? [Share quick feedback here]({GOOGLE_FORM_URL}) — it takes 1 minute.")
+
+if st.session_state.get("last_recommended_product"):
+    st.divider()
+    st.markdown(
+        """
+        <a href="#page-top-anchor" style="
+            display: inline-block;
+            background: linear-gradient(135deg, #6F4E37, #C97B3D);
+            color: white !important;
+            font-weight: 700;
+            padding: 0.6rem 1.4rem;
+            border-radius: 10px;
+            text-decoration: none;
+            font-size: 1.02rem;
+        ">✨ Explore More Coffee Options</a>
+        """,
+        unsafe_allow_html=True,
+    )
