@@ -1311,37 +1311,51 @@ if st.session_state["last_recommended_product"] and not st.session_state["conver
     if GOOGLE_FORM_URL and "REPLACE_WITH" not in GOOGLE_FORM_URL:
         st.markdown(
             """
+            <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;700&display=swap" rel="stylesheet">
             <style>
             @keyframes pulse-glow {
-                0%   { box-shadow: 0 0 0px 0px #B5533C77; }
-                50%  { box-shadow: 0 0 18px 4px #B5533C55; }
-                100% { box-shadow: 0 0 0px 0px #B5533C77; }
+                0%   { box-shadow: 0 0 0px 0px #ffffff00, 0 4px 16px rgba(0,0,0,0.15); transform: scale(1); }
+                50%  { box-shadow: 0 0 22px 6px #FFD37033, 0 4px 20px rgba(0,0,0,0.2); transform: scale(1.01); }
+                100% { box-shadow: 0 0 0px 0px #ffffff00, 0 4px 16px rgba(0,0,0,0.15); transform: scale(1); }
             }
             @keyframes bounce-icon {
-                0%, 100% { transform: translateY(0); }
-                50%      { transform: translateY(-5px); }
+                0%, 100% { transform: translateY(0) rotate(0deg); }
+                50%      { transform: translateY(-6px) rotate(-8deg); }
             }
             .feedback-pulse-box {
-                background: linear-gradient(135deg,#B5533C33,#B5533C11);
-                border: 2px solid #B5533C;
-                border-radius: 10px;
-                padding: 0.9rem 1.1rem;
-                margin-bottom: 0.5rem;
-                animation: pulse-glow 2s ease-in-out infinite;
+                font-family: 'Fredoka', sans-serif;
+                background: linear-gradient(135deg, #D9432E 0%, #C9762A 50%, #E8A23D 100%);
+                border-radius: 16px;
+                padding: 1.1rem 1.3rem;
+                margin-bottom: 0.6rem;
+                animation: pulse-glow 2.2s ease-in-out infinite;
             }
             .feedback-pulse-icon {
                 display: inline-block;
                 animation: bounce-icon 1.2s ease-in-out infinite;
             }
+            .feedback-pulse-title {
+                font-size: 1.35rem;
+                font-weight: 700;
+                color: #FFFFFF;
+                text-shadow: 0 2px 4px rgba(0,0,0,0.25);
+                letter-spacing: 0.3px;
+            }
+            .feedback-pulse-body {
+                font-size: 0.98rem;
+                font-weight: 500;
+                color: #FFF6E9;
+                margin-top: 0.3rem;
+                display: block;
+            }
             </style>
             <div class="feedback-pulse-box">
-                <span style="font-size:1.2rem; font-weight:800;">
+                <span class="feedback-pulse-title">
                     <span class="feedback-pulse-icon">⏳</span>
                     Just 1 Minute — Your Voice Matters!
-                </span><br>
-                <span style="font-size:0.94rem;">
-                    Fill the quick form below and help shape a
-                    <b>better coffee experience for everyone</b> ☕✨
+                </span>
+                <span class="feedback-pulse-body">
+                    Fill the quick form below and help shape a <b>better coffee experience for everyone</b> ☕✨
                 </span>
             </div>
             """,
