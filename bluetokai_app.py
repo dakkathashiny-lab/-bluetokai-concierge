@@ -857,7 +857,7 @@ if "conversation_rated" not in st.session_state:
 if "last_recommended_product" not in st.session_state:
     st.session_state["last_recommended_product"] = None
 
-with st.expander("🔍 Or filter manually", expanded=True):
+with st.expander("☕ Pick Your Perfect Coffee", expanded=True):
     st.markdown(
         """
         <style>
