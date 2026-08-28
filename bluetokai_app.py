@@ -1185,6 +1185,14 @@ elif st.session_state["conversation_rated"]:
             background: linear-gradient(135deg, rgba(31,138,76,0.10), rgba(201,123,61,0.10)) !important;
             text-align: center !important;
         }}
+        .st-key-thank_you_box p, .st-key-thank_you_box li {{
+            color: #1a1a1a !important;
+            font-size: 1.05rem !important;
+            line-height: 1.5 !important;
+        }}
+        .st-key-thank_you_box h3 {{
+            color: #1a1a1a !important;
+        }}
         </style>
         """,
         unsafe_allow_html=True,
