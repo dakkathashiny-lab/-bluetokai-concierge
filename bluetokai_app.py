@@ -969,7 +969,7 @@ st.markdown(
         border-top: none !important;
         border-radius: 0 0 12px 12px !important;
         padding: 1rem !important;
-        margin-bottom: 1rem !important;
+        margin-bottom: 0.25rem !important;
     }
     </style>
     <div class="pick-coffee-header">☕ Pick Your Perfect Coffee</div>
@@ -1228,7 +1228,6 @@ def trigger_scroll_to_result():
 # If the manual filter produced the most recent result, show it right here -
 # directly under the filter you just used, and auto-scroll down to it.
 if st.session_state.get("result_source") == "manual":
-    st.divider()
     render_latest_result()
     if st.session_state.get("scroll_to_latest"):
         st.session_state["scroll_to_latest"] = False
@@ -1292,51 +1291,85 @@ if past_searches:
 st.divider()
 
 if st.session_state["last_recommended_product"] and not st.session_state["conversation_rated"]:
+    st.markdown(f"I hope *{st.session_state['last_recommended_product']}* is exactly what you were looking for! ☕")
+
     if GOOGLE_FORM_URL and "REPLACE_WITH" not in GOOGLE_FORM_URL:
-        st.markdown(f"I hope *{st.session_state['last_recommended_product']}* is exactly what you were looking for! ☕")
-        st.markdown("#### 📝 Before you go — quick feedback?")
-        st.caption("Your rating and thoughts go straight into this form (takes about a minute).")
+        st.markdown("#### 📝 Quick feedback?")
+        st.caption("Your thoughts go straight into this form (takes about a minute).")
         embed_form_url = (
             f"{GOOGLE_FORM_URL}?embedded=true&{GOOGLE_FORM_SESSION_ENTRY_ID}="
             f"{st.session_state.get('session_id', '')}"
         )
         st.markdown(
-            f'<iframe src="{embed_form_url}" width="100%" height="900" '
+            f'<iframe src="{embed_form_url}" width="100%" height="650" '
             f'frameborder="0" marginheight="0" marginwidth="0" '
             f'style="border-radius:12px; border:1px solid #C97B3D33;">Loading…</iframe>',
             unsafe_allow_html=True,
         )
-        st.caption("Scroll to the bottom of the form above and tap Submit, then let us know here:")
-        if st.button("✅ I've submitted my feedback", key="confirm_feedback_submitted", use_container_width=True, type="primary"):
+        st.divider()
+
+    # Star rating always shown, right below the form - tapping a star both
+    # logs the rating and finalizes this recommendation.
+    st.caption("Before you go — how helpful was this chat overall?")
+    star_cols = st.columns(5)
+    for star_n, scol in enumerate(star_cols, start=1):
+        if scol.button("⭐" * star_n, key=f"rate_{star_n}"):
+            log_rating(st.session_state["last_recommended_product"], star_n)
             st.session_state["conversation_rated"] = True
             st.session_state["just_rated"] = True
+            st.session_state["last_rating_stars"] = star_n
             st.rerun()
-    else:
-        # No Google Form configured yet - fall back to the original in-app
-        # star rating so the app still works end-to-end either way.
-        st.markdown(f"I hope *{st.session_state['last_recommended_product']}* is exactly what you were looking for! ☕")
-        st.caption("Before you go — how helpful was this chat overall?")
-        star_cols = st.columns(5)
-        for star_n, scol in enumerate(star_cols, start=1):
-            if scol.button("⭐" * star_n, key=f"rate_{star_n}"):
-                log_rating(st.session_state["last_recommended_product"], star_n)
-                st.session_state["conversation_rated"] = True
-                st.session_state["just_rated"] = True
-                st.session_state["last_rating_stars"] = star_n
-                st.rerun()
 elif st.session_state["conversation_rated"]:
+    stars_given = st.session_state.get("last_rating_stars", 5)
+    is_good_rating = stars_given >= 3
+
     if st.session_state.get("just_rated"):
-        st.balloons()
+        if is_good_rating:
+            st.balloons()
+        else:
+            st.markdown(
+                """
+                <style>
+                @keyframes float-up {
+                    0%   { transform: translateY(0) scale(1); opacity: 1; }
+                    100% { transform: translateY(-160px) scale(1.4); opacity: 0; }
+                }
+                .floating-thumb {
+                    position: fixed;
+                    left: 50%;
+                    bottom: 80px;
+                    font-size: 2.5rem;
+                    animation: float-up 1.6s ease-out forwards;
+                    z-index: 9999;
+                    pointer-events: none;
+                }
+                </style>
+                <div class="floating-thumb">👍</div>
+                <div class="floating-thumb" style="left: 44%; animation-delay: 0.15s;">👍</div>
+                <div class="floating-thumb" style="left: 56%; animation-delay: 0.3s;">👍</div>
+                """,
+                unsafe_allow_html=True,
+            )
     st.session_state["just_rated"] = False
 
-    box_color = "#1F8A4C"
-    header = "### 🎉 ☕ ✨"
-    headline = "**Thanks so much for the feedback!** 🙏"
-    body = (
-        f"I really hope *{st.session_state['last_recommended_product']}* "
-        f"turns out to be everything you're hoping for."
-    )
-    footer = "**Enjoy every sip! 💚**"
+    if is_good_rating:
+        box_color = "#1F8A4C"
+        header = "### 🎉 ☕ ✨"
+        headline = "**Thanks so much for the feedback!** 🙏"
+        body = (
+            f"I really hope *{st.session_state['last_recommended_product']}* "
+            f"turns out to be everything you're hoping for."
+        )
+        footer = "**Enjoy every sip! 💚**"
+    else:
+        box_color = "#C97B3D"
+        header = "### 🙌 ☕ 💫"
+        headline = "**Thanks for sharing your feedback!**"
+        body = (
+            "Your input genuinely helps make every next cup better. "
+            "Fancy a fresh pick? Just ask again — I'm ready to find something you'll love!"
+        )
+        footer = "**Let's find your perfect cup! ☕✨**"
 
     st.markdown(
         f"""
