@@ -1167,21 +1167,26 @@ def render_product_cards(product_rows):
     # (rule-based vs AI) and the two numbers aren't directly comparable.
     if not other_rows.empty:
         st.caption("Other options:")
-        cols = st.columns(min(len(other_rows), 4))
-        for col, (_, prow) in zip(cols, other_rows.iterrows()):
-            with col:
-                if pd.notna(prow.get("Image_URL")):
-                    st.markdown(
-                        f'<img src="{prow["Image_URL"]}" '
-                        f'style="max-width:70px; width:100%; display:block; margin:0 auto; '
-                        f'border-radius:6px;">',
-                        unsafe_allow_html=True,
-                    )
-                st.markdown(
-                    f'<p style="text-align:center; font-size:0.75rem; margin:0.2rem 0 0 0; '
-                    f'line-height:1.15;">{prow["Product_Name"]}</p>',
-                    unsafe_allow_html=True,
+        items_html = ""
+        for _, prow in other_rows.iterrows():
+            img_html = ""
+            if pd.notna(prow.get("Image_URL")):
+                img_html = (
+                    f'<img src="{prow["Image_URL"]}" '
+                    f'style="width:70px; height:70px; object-fit:cover; border-radius:6px; display:block; margin:0 auto;">'
                 )
+            items_html += (
+                f'<div style="flex:0 0 auto; width:80px; text-align:center;">'
+                f'{img_html}'
+                f'<p style="font-size:0.72rem; margin:0.25rem 0 0 0; line-height:1.15;">{prow["Product_Name"]}</p>'
+                f'</div>'
+            )
+        st.markdown(
+            f'<div style="display:flex; overflow-x:auto; gap:0.75rem; padding:0.25rem 0 0.5rem 0;">'
+            f'{items_html}'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
 
 
 def render_latest_result():
@@ -1291,17 +1296,39 @@ if past_searches:
 st.divider()
 
 if st.session_state["last_recommended_product"] and not st.session_state["conversation_rated"]:
-    st.markdown(f"I hope *{st.session_state['last_recommended_product']}* is exactly what you were looking for! ☕")
+    st.markdown(
+        f"""
+        <div style="background:linear-gradient(135deg,#6F4E3722,#C97B3D11);
+                    border-left:4px solid #C97B3D; border-radius:8px;
+                    padding:0.85rem 1.1rem; margin-bottom:1rem;">
+            ☕ I hope <b>{st.session_state['last_recommended_product']}</b> is
+            <span style="color:#C97B3D; font-weight:700;">exactly what you were looking for!</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
     if GOOGLE_FORM_URL and "REPLACE_WITH" not in GOOGLE_FORM_URL:
-        st.markdown("#### 📝 Quick feedback?")
-        st.caption("Your thoughts go straight into this form (takes about a minute).")
+        st.markdown(
+            """
+            <div style="background:linear-gradient(135deg,#B5533C33,#B5533C11);
+                        border:2px solid #B5533C; border-radius:10px;
+                        padding:0.9rem 1.1rem; margin-bottom:0.5rem;">
+                <span style="font-size:1.15rem; font-weight:800;">📝 Don't miss this — Quick feedback?</span><br>
+                <span style="font-size:0.92rem;">
+                    <b>Please take 1 minute</b> to fill the form below — your thoughts go straight
+                    into our research. <b>Every response genuinely matters!</b>
+                </span>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
         embed_form_url = (
             f"{GOOGLE_FORM_URL}?embedded=true&{GOOGLE_FORM_SESSION_ENTRY_ID}="
             f"{st.session_state.get('session_id', '')}"
         )
         st.markdown(
-            f'<iframe src="{embed_form_url}" width="100%" height="650" '
+            f'<iframe src="{embed_form_url}" width="100%" height="550" '
             f'frameborder="0" marginheight="0" marginwidth="0" '
             f'style="border-radius:12px; border:1px solid #C97B3D33;">Loading…</iframe>',
             unsafe_allow_html=True,
