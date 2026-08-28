@@ -134,6 +134,72 @@ BREWING_METHOD_TARGETS = {
     "cold brew": ["cold brew bag", "cold brew can"],
 }
 
+# Real Blue Tokai product page slugs, verified by visiting every collection
+# page directly (not guessed) - used to build a "Buy on Blue Tokai" link for
+# each recommendation. Falls back to the general site if a product is ever
+# added to the catalog without a matching entry here.
+PRODUCT_URLS = {
+    "Attikan Estate": "attikan-estate",
+    "Dhak Blend": "dhak-blend",
+    "Half-Caff (Yelnoorkhan Estate)": "half-caff",
+    "Krishnagiri Estate": "krishnagiri-estate-dark",
+    "Elkhill Estates": "elkhill-estate",
+    "M.S. Estate": "m-s-estate",
+    "St. Joseph Estate": "st-joseph-estate",
+    "Monsoon Malabar AA - Hoysala Estate": "monsoon-malabar",
+    "Sandalwood Estate": "sandalwood-estate",
+    "Kalledevarapura Estate (Pulp Sun Dried)": "kalledevarapura-pulp-sun-dried",
+    "Unakki Estate": "unakki-estate-washed",
+    "Sampigehoney Estate": "sampigehoney-estate",
+    "Salawara Estate": "salawara-estate",
+    "Riverdale Estate - Mosto": "riverdale-estate-mosto",
+    "Baarbara Estate (Whiskey Barrel Aged)": "baarbara-estate-whiskey-barrel",
+    "The Monsoon Trio": "the-monsoon-trio",
+    "The Rich & Bold Trio Pack": "the-rich-bold-trio-pack",
+    "Customised Sampler Pack": "customised-sampler-pack",
+    "5-in-1 Explorer Pack": "5-in-1-explorer-pack",
+    "Attikan Estate (Capsules)": "attikan-estate-aluminium-coffee-capsules",
+    "Dhak Blend (Capsules)": "dhak-blend-aluminium-coffee-capsules",
+    "Vienna Roast (Capsules)": "vienna-roast-aluminium-coffee-capsules",
+    "Americano Drop": "americano-drop-specialty-coffee-concentrate",
+    "Signature Drop": "signature-drop-specialty-coffee-concentrate",
+    "Sea Salt Mocha Drop": "sea-salt-mocha-drop-specialty-coffee-concentrate",
+    "Mixed Bag Drop": "mixed-bag-drop-specialty-coffee-concentrate",
+    "Chilli Cinnamon Mocha Drop": "chilli-cinnamon-mocha-drop-specialty-coffee-concentrate",
+    "Jaggery Drop": "jaggery-drop-specialty-coffee-concentrate",
+    "The Sunrise Combo": "the-sunrise-combo",
+    "The Mocha Mix": "the-mocha-mix",
+    "Attikan Estate Easy Pour": "attikan-estate-easy-pour-coffee-sachets",
+    "Vienna Dark Roast Easy Pour": "vienna-dark-roast-easy-pour-coffee-sachets",
+    "Mixed Light to Dark Roasts Easy Pour": "mixed-light-to-dark-roasts",
+    "Monsoon Malabar Easy Pour": "monsoon-malabar-easy-pour-coffee-sachets",
+    "Seethargundu Estate Easy Pour": "seethargundu-estate-easy-pour-coffee-sachets",
+    "Jacaranda Blend Easy Pour": "jacaranda-blend-easy-pour-coffee-sachets",
+    "French Roast Easy Pour": "french-roast-easy-pour-coffee-sachets",
+    "Cold Brew Bags - Kalledeverapura": "kalledeverapura",
+    "Cold Brew Bags - Bold": "cold-brew-bag-bold",
+    "Cold Brew Bags - Light Blend": "light-blend",
+    "Mocha Cold Coffee": "mocha-cold-coffee",
+    "Classic Cold Coffee": "classic-cold-coffee",
+    "Classic Bold": "classic-bold-cold-brew-cans",
+    "Classic Light": "classic-light-cold-brew-cans",
+    "Coffee Cascara": "coffee-cherry",
+    "Assorted 6-Pack": "assorted-6-pack",
+    "Elderflower Cold Brew": "elderflower-cold-brew-can",
+    "Orange Mint Cold Brew": "orange-mint-cold-brew-cans",
+    "Iced Latte Cans": "iced-latte-cans",
+    "New Brewer's Pack": "new-brewers-pack",
+    "Silver Oak Cafe Blend": "silver-oak-cafe-blend",
+    "Amaltas Blend": "amaltas-blend",
+}
+
+
+def get_product_url(product_name):
+    slug = PRODUCT_URLS.get(product_name)
+    if slug:
+        return f"https://bluetokaicoffee.com/products/{slug}"
+    return "https://bluetokaicoffee.com/collections/all-products-collection"
+
 
 # ---------- DATA ----------
 @st.cache_data
@@ -1084,6 +1150,15 @@ def render_product_cards(product_rows):
                 f"**{top_row['Roast_Level']} roast** · {top_row['Format'].split('(')[0].strip()}  \n"
                 f"Flavor: {top_row['Flavor_Notes']}  \n"
                 f"**{format_price(top_row)}** · {top_row['compatibility_score']}% match"
+            )
+            buy_url = get_product_url(top_row["Product_Name"])
+            st.markdown(
+                f'<a href="{buy_url}" target="_blank" style="'
+                f'display:inline-block; background:linear-gradient(135deg,#6F4E37,#C97B3D); '
+                f'color:white !important; font-weight:700; padding:0.45rem 1rem; '
+                f'border-radius:8px; text-decoration:none; font-size:0.92rem; margin-top:0.5rem;">'
+                f'🛒 Buy on Blue Tokai</a>',
+                unsafe_allow_html=True,
             )
 
     # Plain, smaller cards for the remaining options - no match % shown here,
