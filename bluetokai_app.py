@@ -692,7 +692,7 @@ def process_message(text):
 
 
 # ---------- UI ----------
-st.set_page_config(page_title="Blue Tokai Concierge", page_icon="☕")
+st.set_page_config(page_title="Blue Tokai Concierge", page_icon="🦚")
 
 # Hidden admin dashboard
 # For production, set ADMIN_SECRET in Streamlit secrets (Settings > Secrets)
@@ -844,7 +844,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 with st.container(key="hero_banner"):
-    st.markdown("# ☕ Blue Tokai Concierge")
+    st.markdown("# 🦚 Blue Tokai Concierge ☕")
     st.markdown("👋 **Hi! I'm your Blue Tokai taste concierge** — here to help you find exactly the right cup, from Blue Tokai's real menu.")
 
 if "session_id" not in st.session_state:
