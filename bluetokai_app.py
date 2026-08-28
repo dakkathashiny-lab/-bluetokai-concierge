@@ -11,7 +11,8 @@ import requests
 from datetime import datetime
 
 # ---------- CONFIG ----------
-GOOGLE_FORM_URL = "REPLACE_WITH_YOUR_BLUE_TOKAI_SURVEY_FORM_URL"
+GOOGLE_FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSem3PmBTAEjlNH-VByzJbCh1BbZ-xAq6pSiVDYOC-v-VBE7nA/viewform"
+GOOGLE_FORM_SESSION_ENTRY_ID = "entry.934150347"
 LOG_FILE = "interaction_log.csv"
 RATING_LOG_FILE = "ratings_log.csv"
 SESSION_LOG_FILE = "session_log.csv"
@@ -1390,7 +1391,22 @@ elif st.session_state["conversation_rated"]:
             unsafe_allow_html=True,
         )
 
-# Feedback link only shows once a real Google Form URL is configured, so no
-# placeholder/broken link appears in the meantime.
-if GOOGLE_FORM_URL and "REPLACE_WITH" not in GOOGLE_FORM_URL:
-    st.markdown(f"Enjoyed the recommendations? [Share quick feedback here]({GOOGLE_FORM_URL}) — it takes 1 minute.")
+    # Feedback form embedded directly in the app (not just a link out) so
+    # people can respond right here, right after seeing how satisfied they
+    # were with their pick. Only shown once a real Google Form URL is
+    # configured, and only after rating, with their real session_id already
+    # filled in so responses can be joined to session_log.csv later.
+    if GOOGLE_FORM_URL and "REPLACE_WITH" not in GOOGLE_FORM_URL:
+        st.divider()
+        st.markdown("#### 📝 One more thing — quick feedback?")
+        st.caption("Takes about a minute, helps us understand how well the matches actually worked.")
+        embed_form_url = (
+            f"{GOOGLE_FORM_URL}?embedded=true&{GOOGLE_FORM_SESSION_ENTRY_ID}="
+            f"{st.session_state.get('session_id', '')}"
+        )
+        st.markdown(
+            f'<iframe src="{embed_form_url}" width="100%" height="900" '
+            f'frameborder="0" marginheight="0" marginwidth="0" '
+            f'style="border-radius:12px; border:1px solid #C97B3D33;">Loading…</iframe>',
+            unsafe_allow_html=True,
+        )
