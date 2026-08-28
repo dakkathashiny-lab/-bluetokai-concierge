@@ -817,13 +817,13 @@ if query_params.get("admin") == ADMIN_SECRET:
     st.stop()
 
 st.markdown("### ☕ Blue Tokai Concierge")
-st.caption("Your personal Blue Tokai taste concierge — one brand, real recommendations.")
+st.markdown("👋 **Hi! I'm your Blue Tokai taste concierge** — here to help you find exactly the right cup, from Blue Tokai's real menu.")
 
 if "session_id" not in st.session_state:
     st.session_state["session_id"] = str(uuid.uuid4())
     st.session_state["timestamp_start"] = datetime.now().isoformat(timespec="seconds")
 if "messages" not in st.session_state:
-    st.session_state["messages"] = [("assistant", WELCOME_MESSAGE, None)]
+    st.session_state["messages"] = []
 if "conversation_rated" not in st.session_state:
     st.session_state["conversation_rated"] = False
 if "last_recommended_product" not in st.session_state:
@@ -1054,7 +1054,7 @@ if st.session_state.get("result_source") == "manual":
         trigger_scroll_to_result()
 
 # quick-start buttons only shown before the user has typed anything
-if len(st.session_state["messages"]) == 1:
+if len(st.session_state["messages"]) == 0:
     st.write("Try one of these:")
     cols = st.columns(len(QUICK_START_PROMPTS))
     for col, prompt in zip(cols, QUICK_START_PROMPTS):
