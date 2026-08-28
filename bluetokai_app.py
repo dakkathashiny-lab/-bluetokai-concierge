@@ -817,8 +817,35 @@ if query_params.get("admin") == ADMIN_SECRET:
         st.info("No session log data yet.")
     st.stop()
 
-st.markdown("### ☕ Blue Tokai Concierge")
-st.markdown("👋 **Hi! I'm your Blue Tokai taste concierge** — here to help you find exactly the right cup, from Blue Tokai's real menu.")
+st.markdown(
+    """
+    <style>
+    .st-key-hero_banner {
+        background: linear-gradient(135deg, #3D2B1F, #6F4E37 55%, #C97B3D) !important;
+        border-radius: 18px !important;
+        padding: 1.75rem 2rem !important;
+        margin-bottom: 1rem !important;
+        border: none !important;
+    }
+    .st-key-hero_banner h1, .st-key-hero_banner p {
+        color: #FFFFFF !important;
+    }
+    .st-key-hero_banner h1 {
+        font-size: 2.1rem !important;
+        margin-bottom: 0.4rem !important;
+    }
+    .st-key-hero_banner p {
+        font-size: 1.05rem !important;
+        opacity: 0.95 !important;
+        margin-bottom: 0 !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+with st.container(key="hero_banner"):
+    st.markdown("# ☕ Blue Tokai Concierge")
+    st.markdown("👋 **Hi! I'm your Blue Tokai taste concierge** — here to help you find exactly the right cup, from Blue Tokai's real menu.")
 
 if "session_id" not in st.session_state:
     st.session_state["session_id"] = str(uuid.uuid4())
