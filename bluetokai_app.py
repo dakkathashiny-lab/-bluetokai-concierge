@@ -692,7 +692,7 @@ def process_message(text):
 
 
 # ---------- UI ----------
-st.set_page_config(page_title="Blue Tokai Concierge", page_icon="🦚")
+st.set_page_config(page_title="Blue Tokai Coffee Concierge", page_icon="🦚")
 
 # Hidden admin dashboard
 # For production, set ADMIN_SECRET in Streamlit secrets (Settings > Secrets)
@@ -703,7 +703,7 @@ except Exception:
     ADMIN_SECRET = "bluetokai2026"
 query_params = st.query_params
 if query_params.get("admin") == ADMIN_SECRET:
-    st.title("☕ Blue Tokai Concierge — Admin Dashboard")
+    st.title("☕ Blue Tokai Coffee Concierge — Admin Dashboard")
     st.caption("Hidden view for capstone data collection - not linked anywhere in the normal chat.")
     st.divider()
     st.subheader("⭐ Ratings")
@@ -844,8 +844,8 @@ st.markdown(
     unsafe_allow_html=True,
 )
 with st.container(key="hero_banner"):
-    st.markdown("# 🦚 Blue Tokai Concierge ☕")
-    st.markdown("👋 **Hi! I'm your Blue Tokai taste concierge** — here to help you find exactly the right cup, from Blue Tokai's real menu.")
+    st.markdown("# 🦚 Blue Tokai Coffee Concierge ☕")
+    st.markdown("👋 **Hi! I'm your Blue Tokai coffee taste concierge** — here to help you find exactly the right cup, from Blue Tokai's real coffee menu.")
 
 if "session_id" not in st.session_state:
     st.session_state["session_id"] = str(uuid.uuid4())
