@@ -892,7 +892,27 @@ with st.expander("🔍 Or filter manually", expanded=True):
                                ["Everyday Essential (Under ₹500)", "Classic Reserve (₹500 – ₹800)", "Connoisseur Micro-Lot (₹800+)"],
                                key="filter_budget", label_visibility="collapsed", horizontal=True)
 
-    filter_submitted = st.button("Get recommendations", key="filter_submit_button")
+    st.markdown(
+        """
+        <style>
+        .st-key-filter_submit_button button {
+            background-color: #1F8A4C !important;
+            color: white !important;
+            border: none !important;
+            font-weight: 700 !important;
+            font-size: 1.05rem !important;
+            padding: 0.6rem 0 !important;
+        }
+        .st-key-filter_submit_button button:hover {
+            background-color: #17703C !important;
+            color: white !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+    filter_submitted = st.button("✅ Get Recommendations", key="filter_submit_button",
+                                  use_container_width=True, type="primary")
     if filter_submitted:
         rule_based_matches, prefs = get_manual_filter_recommendations(
             sel_roast, sel_format, sel_milk, flavor_choice=sel_flavor, budget_choice=sel_budget, top_n=5
