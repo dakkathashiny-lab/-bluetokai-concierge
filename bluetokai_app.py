@@ -1445,8 +1445,8 @@ if st.session_state["last_recommended_product"] and not st.session_state["conver
         <div style="background:linear-gradient(135deg,#3D6FB533,#3D6FB511);
                     border:2px solid #3D6FB5; border-radius:10px;
                     padding:0.8rem 1.1rem; margin:0.5rem 0;">
-            <span style="font-size:1.1rem; font-weight:800;">⭐ Before you go —</span>
-            <span style="font-size:1rem;"> how helpful was this chat overall?</span>
+            <span style="font-size:1.1rem; font-weight:800;">✅ Submitted the form above? One last step —</span><br>
+            <span style="font-size:1rem;">Please also tap a star below to rate this chat. <b>This part is separate from the form and still needed!</b> ⭐</span>
         </div>
         """,
         unsafe_allow_html=True,
