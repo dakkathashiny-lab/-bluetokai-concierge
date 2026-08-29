@@ -744,6 +744,7 @@ def process_message(text):
     st.session_state["last_recommended_product"] = f"Blue Tokai — {top['Product_Name']}"
     st.session_state["conversation_rated"] = False
     st.session_state["has_had_response"] = True
+    st.session_state["show_filter_box"] = False
     log_interaction(text, prefs, len(matches))
     log_spss_session(
         "chat", prefs, top, len(matches) - 1,
@@ -977,155 +978,166 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# Plain always-visible container (not a collapsible expander) - this can
-# never accidentally close on the user, since there's no toggle at all.
-with st.container(key="pick_coffee_box"):
-    st.markdown(
-        """
-        <style>
-        .st-key-brew_box {
-            border-left: 4px solid #2E7D6B !important;
-            border-radius: 10px !important;
-            padding: 0.75rem 1rem !important;
-            background-color: rgba(46, 125, 107, 0.04) !important;
-        }
-        .st-key-flavor_box {
-            border-left: 4px solid #B5533C !important;
-            border-radius: 10px !important;
-            padding: 0.75rem 1rem !important;
-            background-color: rgba(181, 83, 60, 0.04) !important;
-        }
-        .st-key-milk_box {
-            border-left: 4px solid #C97B3D !important;
-            border-radius: 10px !important;
-            padding: 0.75rem 1rem !important;
-            background-color: rgba(201, 123, 61, 0.04) !important;
-        }
-        .st-key-roast_box {
-            border-left: 4px solid #6F4E37 !important;
-            border-radius: 10px !important;
-            padding: 0.75rem 1rem !important;
-            background-color: rgba(111, 78, 55, 0.04) !important;
-        }
-        .st-key-budget_box {
-            border-left: 4px solid #3D6FB5 !important;
-            border-radius: 10px !important;
-            padding: 0.75rem 1rem !important;
-            background-color: rgba(61, 111, 181, 0.04) !important;
-        }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-    with st.container(border=True, key="brew_box"):
-        st.markdown("**📦 How do you brew your coffee?**")
-        sel_format = st.radio("How do you brew your coffee?",
-                               ["Ground", "Whole Bean", "Capsule", "Easy Pour", "Cold Brew", "Concentrate/Drop", "Ready-to-Drink Can"],
-                               key="filter_format", label_visibility="collapsed", horizontal=True)
-    with st.container(border=True, key="flavor_box"):
-        st.markdown("**🍫 What flavor do you crave?**")
-        sel_flavor = st.radio("What flavor do you crave?",
-                               ["Plain / Classic (No Specific Flavor)", "Chocolate & Cocoa", "Fruity & Berry",
-                                "Nutty & Hazelnut", "Floral & Citrus", "Caramel & Honey"],
-                               key="filter_flavor", label_visibility="collapsed", horizontal=True)
-    with st.container(border=True, key="milk_box"):
-        st.markdown("**🥛 Black or with milk?**")
-        sel_milk = st.radio("Black or with milk?", ["With Milk", "Black - No Milk"],
-                             key="filter_milk", label_visibility="collapsed", horizontal=True)
-    with st.container(border=True, key="roast_box"):
-        st.markdown("**☕ Roast preference?**")
-        sel_roast = st.radio("Roast preference?", ["Light", "Medium", "Medium-Dark", "Dark"],
-                              key="filter_roast", label_visibility="collapsed", horizontal=True)
-    with st.container(border=True, key="budget_box"):
-        st.markdown("**💰 Preferred budget tier per bag?**")
-        sel_budget = st.radio("Preferred budget tier per bag?",
-                               ["Everyday Essential (Under ₹500)", "Classic Reserve (₹500 – ₹800)", "Connoisseur Micro-Lot (₹800+)"],
-                               key="filter_budget", label_visibility="collapsed", horizontal=True)
+if "show_filter_box" not in st.session_state:
+    st.session_state["show_filter_box"] = True
 
-    st.markdown(
-        """
-        <style>
-        .st-key-filter_submit_button button {
-            background-color: #1F8A4C !important;
-            color: white !important;
-            border: none !important;
-            font-weight: 700 !important;
-            font-size: 1.05rem !important;
-            padding: 0.6rem 0 !important;
-        }
-        .st-key-filter_submit_button button:hover {
-            background-color: #17703C !important;
-            color: white !important;
-        }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-    filter_submitted = st.button("✅ Get Recommendations", key="filter_submit_button",
-                                  use_container_width=True, type="primary")
-    if filter_submitted:
-        rule_based_matches, prefs = get_manual_filter_recommendations(
-            sel_roast, sel_format, sel_milk, flavor_choice=sel_flavor, budget_choice=sel_budget, top_n=5
-        )
-        rule_based_top = rule_based_matches.iloc[0]
-        reason = build_reason_text(prefs)
+toggle_label = "🔼 Hide options" if st.session_state["show_filter_box"] else "🔽 Show / change options"
+if st.button(toggle_label, key="toggle_filter_box", use_container_width=True):
+    st.session_state["show_filter_box"] = not st.session_state["show_filter_box"]
+    st.rerun()
 
-        # Try the AI first, exactly like the chat box - rule-based (the hard-
-        # filtered result above) is only used as the fallback if the AI is
-        # unavailable, errors out, or returns something outside the catalog.
-        selection_text = (
-            f"I selected: {sel_format} brew format, {sel_flavor} flavor, "
-            f"{sel_milk}, {sel_roast} roast, {sel_budget} budget tier."
-        )
-        llm_result = get_llm_recommendation(selection_text, prefs)
-
-        if llm_result is not None:
-            method = "llm"
-            llm_model_name = llm_result["llm_model_name"]
-            llm_latency_ms = llm_result["llm_latency_ms"]
-            matched_row = in_stock[in_stock["Product_Name"] == llm_result["matched_product_name"]].iloc[0].copy()
-            matched_row["compatibility_score"] = llm_result["compatibility_score"]
-            alt_pool = rule_based_matches[rule_based_matches["Product_Name"] != matched_row["Product_Name"]]
-            matches = pd.concat([matched_row.to_frame().T, alt_pool], ignore_index=True).head(5)
-            top = matched_row
-            reply = llm_result["reason"] or f"Matched because you wanted: {reason}. Here's my pick, plus a few other options that fit well too:"
-        else:
-            method = "rule_based"
-            llm_model_name = ""
-            llm_latency_ms = 0
-            matches = rule_based_matches
-            top = rule_based_top
-            reply = f"Matched because you wanted: {reason}. Here's my pick, plus a few other options that fit well too:"
-
-        st.session_state.setdefault("messages", [])
-        st.session_state["messages"].append(("user", f"Manual filter: {reason}", None))
-        st.session_state["messages"].append(("assistant", reply, matches.head(5)))
-        st.session_state["last_recommended_product"] = f"Blue Tokai — {top['Product_Name']}"
-        st.session_state["conversation_rated"] = False
-        st.session_state["has_had_response"] = True
-        st.session_state["result_source"] = "manual"
-        st.session_state["scroll_to_latest"] = True
-        log_interaction(f"Manual filter: {reason}", prefs, len(matches))
-        log_spss_session(
-            "manual", prefs, top, len(matches) - 1,
-            recommendation_method=method, llm_model_name=llm_model_name,
-            llm_latency_ms=llm_latency_ms, rule_based_score_sc=rule_based_top["compatibility_score"],
-        )
-        st.session_state.setdefault("search_history", [])
-        st.session_state["search_history"].append({
-            "query": f"Manual filter: {reason}", "reply": reply, "products": matches.head(5),
-        })
-        st.rerun()
-
-    # Guaranteed tap-to-jump link, right next to the button you just used -
-    # visible in the same screen, no scrolling needed to find it. Unlike
-    # JavaScript auto-scroll (which some mobile browsers block), a plain
-    # anchor link always works.
-    if st.session_state.get("result_source") == "manual" and len(st.session_state.get("messages", [])) > 1:
+# Plain always-visible-when-toggled-on container (not a collapsible expander)
+# - fully controlled by our own session_state flag, so unlike Streamlit's
+# built-in expander it never closes unexpectedly on its own.
+if st.session_state["show_filter_box"]:
+    with st.container(key="pick_coffee_box"):
         st.markdown(
-            '<a href="#latest-response-anchor" style="font-size:1.05em;">⬇️ Tap here to see your recommendation</a>',
+            """
+            <style>
+            .st-key-brew_box {
+                border-left: 4px solid #2E7D6B !important;
+                border-radius: 10px !important;
+                padding: 0.75rem 1rem !important;
+                background-color: rgba(46, 125, 107, 0.04) !important;
+            }
+            .st-key-flavor_box {
+                border-left: 4px solid #B5533C !important;
+                border-radius: 10px !important;
+                padding: 0.75rem 1rem !important;
+                background-color: rgba(181, 83, 60, 0.04) !important;
+            }
+            .st-key-milk_box {
+                border-left: 4px solid #C97B3D !important;
+                border-radius: 10px !important;
+                padding: 0.75rem 1rem !important;
+                background-color: rgba(201, 123, 61, 0.04) !important;
+            }
+            .st-key-roast_box {
+                border-left: 4px solid #6F4E37 !important;
+                border-radius: 10px !important;
+                padding: 0.75rem 1rem !important;
+                background-color: rgba(111, 78, 55, 0.04) !important;
+            }
+            .st-key-budget_box {
+                border-left: 4px solid #3D6FB5 !important;
+                border-radius: 10px !important;
+                padding: 0.75rem 1rem !important;
+                background-color: rgba(61, 111, 181, 0.04) !important;
+            }
+            </style>
+            """,
             unsafe_allow_html=True,
         )
+        with st.container(border=True, key="brew_box"):
+            st.markdown("**📦 How do you brew your coffee?**")
+            sel_format = st.radio("How do you brew your coffee?",
+                                   ["Ground", "Whole Bean", "Capsule", "Easy Pour", "Cold Brew", "Concentrate/Drop", "Ready-to-Drink Can"],
+                                   key="filter_format", label_visibility="collapsed", horizontal=True)
+        with st.container(border=True, key="flavor_box"):
+            st.markdown("**🍫 What flavor do you crave?**")
+            sel_flavor = st.radio("What flavor do you crave?",
+                                   ["Plain / Classic (No Specific Flavor)", "Chocolate & Cocoa", "Fruity & Berry",
+                                    "Nutty & Hazelnut", "Floral & Citrus", "Caramel & Honey"],
+                                   key="filter_flavor", label_visibility="collapsed", horizontal=True)
+        with st.container(border=True, key="milk_box"):
+            st.markdown("**🥛 Black or with milk?**")
+            sel_milk = st.radio("Black or with milk?", ["With Milk", "Black - No Milk"],
+                                 key="filter_milk", label_visibility="collapsed", horizontal=True)
+        with st.container(border=True, key="roast_box"):
+            st.markdown("**☕ Roast preference?**")
+            sel_roast = st.radio("Roast preference?", ["Light", "Medium", "Medium-Dark", "Dark"],
+                                  key="filter_roast", label_visibility="collapsed", horizontal=True)
+        with st.container(border=True, key="budget_box"):
+            st.markdown("**💰 Preferred budget tier per bag?**")
+            sel_budget = st.radio("Preferred budget tier per bag?",
+                                   ["Everyday Essential (Under ₹500)", "Classic Reserve (₹500 – ₹800)", "Connoisseur Micro-Lot (₹800+)"],
+                                   key="filter_budget", label_visibility="collapsed", horizontal=True)
+
+        st.markdown(
+            """
+            <style>
+            .st-key-filter_submit_button button {
+                background-color: #1F8A4C !important;
+                color: white !important;
+                border: none !important;
+                font-weight: 700 !important;
+                font-size: 1.05rem !important;
+                padding: 0.6rem 0 !important;
+            }
+            .st-key-filter_submit_button button:hover {
+                background-color: #17703C !important;
+                color: white !important;
+            }
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
+        filter_submitted = st.button("✅ Get Recommendations", key="filter_submit_button",
+                                      use_container_width=True, type="primary")
+        if filter_submitted:
+            rule_based_matches, prefs = get_manual_filter_recommendations(
+                sel_roast, sel_format, sel_milk, flavor_choice=sel_flavor, budget_choice=sel_budget, top_n=5
+            )
+            rule_based_top = rule_based_matches.iloc[0]
+            reason = build_reason_text(prefs)
+
+            # Try the AI first, exactly like the chat box - rule-based (the hard-
+            # filtered result above) is only used as the fallback if the AI is
+            # unavailable, errors out, or returns something outside the catalog.
+            selection_text = (
+                f"I selected: {sel_format} brew format, {sel_flavor} flavor, "
+                f"{sel_milk}, {sel_roast} roast, {sel_budget} budget tier."
+            )
+            llm_result = get_llm_recommendation(selection_text, prefs)
+
+            if llm_result is not None:
+                method = "llm"
+                llm_model_name = llm_result["llm_model_name"]
+                llm_latency_ms = llm_result["llm_latency_ms"]
+                matched_row = in_stock[in_stock["Product_Name"] == llm_result["matched_product_name"]].iloc[0].copy()
+                matched_row["compatibility_score"] = llm_result["compatibility_score"]
+                alt_pool = rule_based_matches[rule_based_matches["Product_Name"] != matched_row["Product_Name"]]
+                matches = pd.concat([matched_row.to_frame().T, alt_pool], ignore_index=True).head(5)
+                top = matched_row
+                reply = llm_result["reason"] or f"Matched because you wanted: {reason}. Here's my pick, plus a few other options that fit well too:"
+            else:
+                method = "rule_based"
+                llm_model_name = ""
+                llm_latency_ms = 0
+                matches = rule_based_matches
+                top = rule_based_top
+                reply = f"Matched because you wanted: {reason}. Here's my pick, plus a few other options that fit well too:"
+
+            st.session_state.setdefault("messages", [])
+            st.session_state["messages"].append(("user", f"Manual filter: {reason}", None))
+            st.session_state["messages"].append(("assistant", reply, matches.head(5)))
+            st.session_state["last_recommended_product"] = f"Blue Tokai — {top['Product_Name']}"
+            st.session_state["conversation_rated"] = False
+            st.session_state["has_had_response"] = True
+            st.session_state["show_filter_box"] = False
+            st.session_state["result_source"] = "manual"
+            st.session_state["scroll_to_latest"] = True
+            log_interaction(f"Manual filter: {reason}", prefs, len(matches))
+            log_spss_session(
+                "manual", prefs, top, len(matches) - 1,
+                recommendation_method=method, llm_model_name=llm_model_name,
+                llm_latency_ms=llm_latency_ms, rule_based_score_sc=rule_based_top["compatibility_score"],
+            )
+            st.session_state.setdefault("search_history", [])
+            st.session_state["search_history"].append({
+                "query": f"Manual filter: {reason}", "reply": reply, "products": matches.head(5),
+            })
+            st.rerun()
+
+        # Guaranteed tap-to-jump link, right next to the button you just used -
+        # visible in the same screen, no scrolling needed to find it. Unlike
+        # JavaScript auto-scroll (which some mobile browsers block), a plain
+        # anchor link always works.
+        if st.session_state.get("result_source") == "manual" and len(st.session_state.get("messages", [])) > 1:
+            st.markdown(
+                '<a href="#latest-response-anchor" style="font-size:1.05em;">⬇️ Tap here to see your recommendation</a>',
+                unsafe_allow_html=True,
+            )
 
 
 def render_product_cards(product_rows, show_scroll_hint=True):
