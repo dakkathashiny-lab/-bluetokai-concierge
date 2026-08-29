@@ -1365,7 +1365,7 @@ if past_searches:
 
 st.divider()
 
-if st.session_state["last_recommended_product"]:
+if st.session_state["last_recommended_product"] and not st.session_state["conversation_rated"]:
     st.markdown(
         f"""
         <div style="background:linear-gradient(135deg,#6F4E3722,#C97B3D11);
@@ -1501,22 +1501,27 @@ elif st.session_state["conversation_rated"]:
     st.session_state["just_rated"] = False
 
     # Since we can't detect whether someone actually submitted the Google
-    # Form before tapping a star (cross-site iframe limitation - same reason
-    # auto-scroll couldn't fully work either), always show a clear reminder
-    # here, so nobody accidentally skips the research form.
+    # Form (cross-site iframe limitation - same reason auto-scroll couldn't
+    # fully work either), offer a plain LINK here instead of re-embedding the
+    # form. A live iframe would reload blank on every rerun, which looks like
+    # "please redo this" even for people who already submitted - a plain link
+    # doesn't have that problem, and won't be clicked by anyone who's done.
     if GOOGLE_FORM_URL and "REPLACE_WITH" not in GOOGLE_FORM_URL:
+        prefilled_form_url = (
+            f"{GOOGLE_FORM_URL}?usp=pp_url&{GOOGLE_FORM_SESSION_ENTRY_ID}="
+            f"{st.session_state.get('session_id', '')}"
+        )
         st.markdown(
-            """
-            <div style="background:linear-gradient(135deg,#D9432E22,#D9432E11);
-                        border:2px solid #D9432E; border-radius:10px;
-                        padding:0.85rem 1.1rem; margin-bottom:0.75rem;">
-                <span style="font-size:1.05rem; font-weight:800; color:#D9432E;">
-                    ⚠️ One quick check —
-                </span>
-                <span style="font-size:0.95rem;">
-                    have you filled the feedback form above yet? If not,
-                    <b>please scroll up and submit it</b> — it means a lot for my research and
-                    only takes a minute. 🙏
+            f"""
+            <div style="background:linear-gradient(135deg,#3D6FB522,#3D6FB511);
+                        border:2px solid #3D6FB5; border-radius:10px;
+                        padding:0.7rem 1.1rem; margin-bottom:0.75rem;">
+                <span style="font-size:0.92rem;">
+                    🙏 Already filled the feedback form? You're all set — thank you!
+                    Haven't gotten to it yet?
+                    <a href="{prefilled_form_url}" target="_blank" style="color:#3D6FB5; font-weight:700;">
+                        Fill it here
+                    </a> (opens in a new tab, only takes a minute).
                 </span>
             </div>
             """,
