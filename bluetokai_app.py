@@ -1479,6 +1479,29 @@ elif st.session_state["conversation_rated"]:
             )
     st.session_state["just_rated"] = False
 
+    # Since we can't detect whether someone actually submitted the Google
+    # Form before tapping a star (cross-site iframe limitation - same reason
+    # auto-scroll couldn't fully work either), always show a clear reminder
+    # here, so nobody accidentally skips the research form.
+    if GOOGLE_FORM_URL and "REPLACE_WITH" not in GOOGLE_FORM_URL:
+        st.markdown(
+            """
+            <div style="background:linear-gradient(135deg,#D9432E22,#D9432E11);
+                        border:2px solid #D9432E; border-radius:10px;
+                        padding:0.85rem 1.1rem; margin-bottom:0.75rem;">
+                <span style="font-size:1.05rem; font-weight:800; color:#D9432E;">
+                    ⚠️ One quick check —
+                </span>
+                <span style="font-size:0.95rem;">
+                    have you filled the feedback form above yet? If not,
+                    <b>please scroll up and submit it</b> — it means a lot for my research and
+                    only takes a minute. 🙏
+                </span>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
     if is_good_rating:
         box_color = "#1F8A4C"
         header = "### 🎉 ☕ ✨"
