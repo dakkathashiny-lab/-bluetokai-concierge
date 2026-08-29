@@ -1184,32 +1184,30 @@ def render_product_cards(product_rows, show_scroll_hint=True):
             f"⭐ Our Pick: {top_row['Product_Name']}</p>",
             unsafe_allow_html=True,
         )
-        pick_img_col, pick_info_col = st.columns([1, 2])
-        with pick_img_col:
-            if pd.notna(top_row.get("Image_URL")):
-                st.markdown(
-                    f'<img src="{top_row["Image_URL"]}" '
-                    f'style="max-width:95px; width:100%; display:block; margin:0 auto; '
-                    f'border-radius:6px;">',
-                    unsafe_allow_html=True,
-                )
-        with pick_info_col:
+        if pd.notna(top_row.get("Image_URL")):
             st.markdown(
-                f"<p style='font-size:0.85rem; line-height:1.4; margin:0;'>"
-                f"<b>{top_row['Roast_Level']} roast</b> · {top_row['Format'].split('(')[0].strip()}<br>"
-                f"Flavor: {top_row['Flavor_Notes']}<br>"
-                f"<b>{format_price(top_row)}</b> · {top_row['compatibility_score']}% match</p>",
+                f'<div style="text-align:center;">'
+                f'<img src="{top_row["Image_URL"]}" '
+                f'style="max-width:95px; width:95px; display:inline-block; '
+                f'border-radius:6px;"></div>',
                 unsafe_allow_html=True,
             )
-            buy_url = get_product_url(top_row["Product_Name"])
-            st.markdown(
-                f'<a href="{buy_url}" target="_blank" style="'
-                f'display:inline-block; background:linear-gradient(135deg,#6F4E37,#C97B3D); '
-                f'color:white !important; font-weight:700; padding:0.3rem 0.75rem; '
-                f'border-radius:6px; text-decoration:none; font-size:0.8rem; margin-top:0.4rem;">'
-                f'🛒 Buy on Blue Tokai</a>',
-                unsafe_allow_html=True,
-            )
+        st.markdown(
+            f"<p style='font-size:0.85rem; line-height:1.4; margin:0.5rem 0 0 0;'>"
+            f"<b>{top_row['Roast_Level']} roast</b> · {top_row['Format'].split('(')[0].strip()}<br>"
+            f"Flavor: {top_row['Flavor_Notes']}<br>"
+            f"<b>{format_price(top_row)}</b> · {top_row['compatibility_score']}% match</p>",
+            unsafe_allow_html=True,
+        )
+        buy_url = get_product_url(top_row["Product_Name"])
+        st.markdown(
+            f'<a href="{buy_url}" target="_blank" style="'
+            f'display:inline-block; background:linear-gradient(135deg,#6F4E37,#C97B3D); '
+            f'color:white !important; font-weight:700; padding:0.3rem 0.75rem; '
+            f'border-radius:6px; text-decoration:none; font-size:0.8rem; margin-top:0.4rem;">'
+            f'🛒 Buy on Blue Tokai</a>',
+            unsafe_allow_html=True,
+        )
 
     # Plain, smaller cards for the remaining options - no match % shown here,
     # since these come from a different scoring system than the top pick
