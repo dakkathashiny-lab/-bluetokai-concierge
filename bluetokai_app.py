@@ -766,7 +766,7 @@ def process_message(text):
 
 
 # ---------- UI ----------
-st.set_page_config(page_title="Blue Tokai Coffee Concierge", page_icon="🦚")
+st.set_page_config(page_title="Blue Tokai Coffee Concierge", page_icon="🦚", layout="wide")
 
 # Hidden admin dashboard
 # For production, set ADMIN_SECRET in Streamlit secrets (Settings > Secrets)
@@ -906,6 +906,19 @@ if query_params.get("admin") == ADMIN_SECRET:
     st.stop()
 
 st.markdown('<div id="page-top-anchor"></div>', unsafe_allow_html=True)
+
+st.markdown(
+    """
+    <style>
+    .block-container {
+        padding-left: 0.75rem !important;
+        padding-right: 0.75rem !important;
+        max-width: 900px !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
 st.markdown(
     """
