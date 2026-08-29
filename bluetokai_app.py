@@ -1365,7 +1365,7 @@ if past_searches:
 
 st.divider()
 
-if st.session_state["last_recommended_product"] and not st.session_state["conversation_rated"]:
+if st.session_state["last_recommended_product"]:
     st.markdown(
         f"""
         <div style="background:linear-gradient(135deg,#6F4E3722,#C97B3D11);
@@ -1378,6 +1378,8 @@ if st.session_state["last_recommended_product"] and not st.session_state["conver
         unsafe_allow_html=True,
     )
 
+    # The form always stays visible here, whether or not you've rated yet -
+    # so "scroll up to find the form" is always genuinely true.
     if GOOGLE_FORM_URL and "REPLACE_WITH" not in GOOGLE_FORM_URL:
         st.markdown(
             """
@@ -1395,9 +1397,9 @@ if st.session_state["last_recommended_product"] and not st.session_state["conver
             .feedback-pulse-box {
                 font-family: 'Fredoka', sans-serif;
                 background: linear-gradient(135deg, #D9432E 0%, #C9762A 50%, #E8A23D 100%);
-                border-radius: 16px;
-                padding: 1.1rem 1.3rem;
-                margin-bottom: 0.6rem;
+                border-radius: 12px;
+                padding: 0.55rem 0.85rem;
+                margin-bottom: 0.5rem;
                 animation: pulse-glow 2.2s ease-in-out infinite;
             }
             .feedback-pulse-icon {
@@ -1405,17 +1407,17 @@ if st.session_state["last_recommended_product"] and not st.session_state["conver
                 animation: bounce-icon 1.2s ease-in-out infinite;
             }
             .feedback-pulse-title {
-                font-size: 1.35rem;
+                font-size: 1rem;
                 font-weight: 700;
                 color: #FFFFFF;
-                text-shadow: 0 2px 4px rgba(0,0,0,0.25);
-                letter-spacing: 0.3px;
+                text-shadow: 0 1px 3px rgba(0,0,0,0.25);
+                letter-spacing: 0.2px;
             }
             .feedback-pulse-body {
-                font-size: 0.98rem;
+                font-size: 0.8rem;
                 font-weight: 500;
                 color: #FFF6E9;
-                margin-top: 0.3rem;
+                margin-top: 0.15rem;
                 display: block;
             }
             </style>
@@ -1425,7 +1427,7 @@ if st.session_state["last_recommended_product"] and not st.session_state["conver
                     Just 1 Minute — Your Voice Matters!
                 </span>
                 <span class="feedback-pulse-body">
-                    Fill the quick form below and help shape a <b>better coffee experience for everyone</b> ☕✨
+                    Fill the quick form below ☕✨
                 </span>
             </div>
             """,
@@ -1443,6 +1445,7 @@ if st.session_state["last_recommended_product"] and not st.session_state["conver
         )
         st.divider()
 
+if st.session_state["last_recommended_product"] and not st.session_state["conversation_rated"]:
     # Star rating always shown, right below the form - tapping a star both
     # logs the rating and finalizes this recommendation.
     st.markdown(
