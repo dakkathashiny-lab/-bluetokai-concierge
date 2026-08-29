@@ -1128,7 +1128,7 @@ with st.container(key="pick_coffee_box"):
         )
 
 
-def render_product_cards(product_rows):
+def render_product_cards(product_rows, show_scroll_hint=True):
     top_row = product_rows.iloc[0]
     other_rows = product_rows.iloc[1:]
 
@@ -1185,6 +1185,29 @@ def render_product_cards(product_rows):
             f'<div style="display:flex; overflow-x:auto; gap:0.75rem; padding:0.25rem 0 0.5rem 0;">'
             f'{items_html}'
             f'</div>',
+            unsafe_allow_html=True,
+        )
+
+    if show_scroll_hint:
+        st.markdown(
+            """
+            <style>
+            @keyframes bounce-down {
+                0%, 100% { transform: translateY(0); }
+                50%      { transform: translateY(8px); }
+            }
+            .scroll-down-hint {
+                text-align: center;
+                margin: 0.75rem 0;
+                animation: bounce-down 1.3s ease-in-out infinite;
+            }
+            </style>
+            <div class="scroll-down-hint">
+                <span style="font-size:0.95rem; font-weight:700; color:#C97B3D;">
+                    👇 Scroll down for quick feedback 👇
+                </span>
+            </div>
+            """,
             unsafe_allow_html=True,
         )
 
@@ -1290,7 +1313,7 @@ if past_searches:
             st.markdown(f"**{i}. You asked:** {entry['query']}")
             st.markdown(entry["reply"])
             if entry["products"] is not None and not entry["products"].empty:
-                render_product_cards(entry["products"])
+                render_product_cards(entry["products"], show_scroll_hint=False)
             st.divider()
 
 st.divider()
