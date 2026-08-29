@@ -913,6 +913,7 @@ st.markdown(
     .block-container {
         padding-left: 0.75rem !important;
         padding-right: 0.75rem !important;
+        padding-top: 1rem !important;
         max-width: 900px !important;
     }
     </style>
@@ -1178,28 +1179,34 @@ def render_product_cards(product_rows, show_scroll_hint=True):
     # visible, even on mobile where columns stack vertically), image and
     # details follow right below it.
     with st.container(border=True):
-        st.markdown(f"### ⭐ Our Pick: {top_row['Product_Name']}")
+        st.markdown(
+            f"<p style='font-size:1.05rem; font-weight:700; margin-bottom:0.3rem;'>"
+            f"⭐ Our Pick: {top_row['Product_Name']}</p>",
+            unsafe_allow_html=True,
+        )
         pick_img_col, pick_info_col = st.columns([1, 2])
         with pick_img_col:
             if pd.notna(top_row.get("Image_URL")):
                 st.markdown(
                     f'<img src="{top_row["Image_URL"]}" '
-                    f'style="max-width:170px; width:100%; display:block; margin:0 auto; '
-                    f'border-radius:8px;">',
+                    f'style="max-width:95px; width:100%; display:block; margin:0 auto; '
+                    f'border-radius:6px;">',
                     unsafe_allow_html=True,
                 )
         with pick_info_col:
             st.markdown(
-                f"**{top_row['Roast_Level']} roast** · {top_row['Format'].split('(')[0].strip()}  \n"
-                f"Flavor: {top_row['Flavor_Notes']}  \n"
-                f"**{format_price(top_row)}** · {top_row['compatibility_score']}% match"
+                f"<p style='font-size:0.85rem; line-height:1.4; margin:0;'>"
+                f"<b>{top_row['Roast_Level']} roast</b> · {top_row['Format'].split('(')[0].strip()}<br>"
+                f"Flavor: {top_row['Flavor_Notes']}<br>"
+                f"<b>{format_price(top_row)}</b> · {top_row['compatibility_score']}% match</p>",
+                unsafe_allow_html=True,
             )
             buy_url = get_product_url(top_row["Product_Name"])
             st.markdown(
                 f'<a href="{buy_url}" target="_blank" style="'
                 f'display:inline-block; background:linear-gradient(135deg,#6F4E37,#C97B3D); '
-                f'color:white !important; font-weight:700; padding:0.45rem 1rem; '
-                f'border-radius:8px; text-decoration:none; font-size:0.92rem; margin-top:0.5rem;">'
+                f'color:white !important; font-weight:700; padding:0.3rem 0.75rem; '
+                f'border-radius:6px; text-decoration:none; font-size:0.8rem; margin-top:0.4rem;">'
                 f'🛒 Buy on Blue Tokai</a>',
                 unsafe_allow_html=True,
             )
