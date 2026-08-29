@@ -7,6 +7,7 @@ import os
 import uuid
 import json
 import time
+import random
 import requests
 from datetime import datetime
 
@@ -23,7 +24,7 @@ SESSION_LOG_COLUMNS = [
     "matched_product_name", "price_inr", "price_tier",
     "compatibility_score_sc", "roast_match_flag", "format_match_flag",
     "num_alternatives_shown", "completed_flag",
-    "recommendation_method", "llm_model_name", "llm_latency_ms", "rule_based_score_sc",
+    "assigned_arm", "recommendation_method", "llm_model_name", "llm_latency_ms", "rule_based_score_sc",
 ]
 
 GROQ_MODEL = "openai/gpt-oss-120b"
@@ -623,12 +624,15 @@ def get_price_tier(price_inr):
 
 def log_spss_session(source, prefs, top_row, num_alternatives, completed_flag=1,
                       recommendation_method="rule_based", llm_model_name="",
-                      llm_latency_ms=0, rule_based_score_sc=None):
+                      llm_latency_ms=0, rule_based_score_sc=None, assigned_arm=""):
     """SPSS-ready session log: one row per recommendation, capturing the input
     preferences, the matched product's key output variables, and session/timing
     metadata, joinable to the post-chat Google Form survey via session_id.
     Also logs which engine produced the result (llm vs rule_based) and the
-    rule-based score for direct comparison, even when the LLM's pick is shown."""
+    rule-based score for direct comparison, even when the LLM's pick is shown.
+    assigned_arm records the 50/50 randomized INTENT for this session, which
+    may differ from recommendation_method if the LLM was assigned but failed
+    (intent-to-treat vs per-protocol - both are logged, never conflated)."""
     now = datetime.now()
     timestamp_submit = now.isoformat(timespec="seconds")
     timestamp_start = st.session_state.get("timestamp_start", timestamp_submit)
@@ -676,6 +680,7 @@ def log_spss_session(source, prefs, top_row, num_alternatives, completed_flag=1,
         "format_match_flag": format_match_flag,
         "num_alternatives_shown": num_alternatives,
         "completed_flag": completed_flag,
+        "assigned_arm": assigned_arm,
         "recommendation_method": recommendation_method,
         "llm_model_name": llm_model_name,
         "llm_latency_ms": llm_latency_ms,
@@ -717,7 +722,8 @@ def process_message(text):
     rule_based_matches = get_recommendations(prefs, top_n=5)
     rule_based_top = rule_based_matches.iloc[0]
 
-    llm_result = get_llm_recommendation(text, prefs)
+    assigned_arm = st.session_state.get("assigned_arm", "llm")
+    llm_result = get_llm_recommendation(text, prefs) if assigned_arm == "llm" else None
 
     if llm_result is not None:
         method = "llm"
@@ -749,6 +755,7 @@ def process_message(text):
         "chat", prefs, top, len(matches) - 1,
         recommendation_method=method, llm_model_name=llm_model_name,
         llm_latency_ms=llm_latency_ms, rule_based_score_sc=rule_based_top["compatibility_score"],
+        assigned_arm=assigned_arm,
     )
     st.session_state["messages"].append(("assistant", reply, matches.head(5)))
 
@@ -865,6 +872,20 @@ if query_params.get("admin") == ADMIN_SECRET:
             col1.metric("Total sessions", len(session_df))
             col2.metric("Chat vs Manual", f"{(session_df['source']=='chat').sum()} / {(session_df['source']=='manual').sum()}")
             col3.metric("Avg compatibility", f"{session_df['compatibility_score_sc'].mean():.1f}%")
+
+            if "assigned_arm" in session_df.columns:
+                st.markdown("**🎲 Randomized arm balance (should trend toward 50/50):**")
+                arm_col1, arm_col2, arm_col3 = st.columns(3)
+                assigned_llm_count = (session_df["assigned_arm"] == "llm").sum()
+                assigned_rules_count = (session_df["assigned_arm"] == "rule_based").sum()
+                actual_llm_count = (session_df["recommendation_method"] == "llm").sum()
+                arm_col1.metric("Assigned: llm", assigned_llm_count)
+                arm_col2.metric("Assigned: rule_based", assigned_rules_count)
+                if assigned_llm_count > 0:
+                    fallback_rate = 1 - (actual_llm_count / assigned_llm_count)
+                    arm_col3.metric("LLM fallback rate", f"{fallback_rate:.1%}",
+                                     help="Of sessions ASSIGNED to the llm arm, what fraction actually fell back to rule-based due to an AI failure.")
+
             st.dataframe(session_df.sort_values("timestamp_submit", ascending=False), use_container_width=True, hide_index=True)
             st.download_button("Download session log CSV", session_df.to_csv(index=False), "session_log.csv", "text/csv")
             if st.button("🗑️ Clear all session log data", key="clear_session_btn"):
@@ -932,6 +953,11 @@ with st.container(key="hero_banner"):
 if "session_id" not in st.session_state:
     st.session_state["session_id"] = str(uuid.uuid4())
     st.session_state["timestamp_start"] = datetime.now().isoformat(timespec="seconds")
+    # Randomized comparison: 50/50 coin flip, decided once per session, so a
+    # single person's whole visit (chat + manual filter) stays on one arm.
+    # "llm" still falls back to rule-based if the API genuinely fails - the
+    # assignment records INTENT, actual outcome is logged separately.
+    st.session_state["assigned_arm"] = random.choice(["llm", "rule_based"])
 if "messages" not in st.session_state:
     st.session_state["messages"] = []
 if "conversation_rated" not in st.session_state:
@@ -1070,14 +1096,16 @@ with st.container(key="pick_coffee_box"):
         rule_based_top = rule_based_matches.iloc[0]
         reason = build_reason_text(prefs)
 
-        # Try the AI first, exactly like the chat box - rule-based (the hard-
-        # filtered result above) is only used as the fallback if the AI is
+        # Try the AI first only if this session is assigned to the LLM arm -
+        # rule-based (the hard-filtered result above) is used either as the
+        # deliberate control-arm choice, or as the fallback if the AI is
         # unavailable, errors out, or returns something outside the catalog.
         selection_text = (
             f"I selected: {sel_format} brew format, {sel_flavor} flavor, "
             f"{sel_milk}, {sel_roast} roast, {sel_budget} budget tier."
         )
-        llm_result = get_llm_recommendation(selection_text, prefs)
+        assigned_arm = st.session_state.get("assigned_arm", "llm")
+        llm_result = get_llm_recommendation(selection_text, prefs) if assigned_arm == "llm" else None
 
         if llm_result is not None:
             method = "llm"
@@ -1110,6 +1138,7 @@ with st.container(key="pick_coffee_box"):
             "manual", prefs, top, len(matches) - 1,
             recommendation_method=method, llm_model_name=llm_model_name,
             llm_latency_ms=llm_latency_ms, rule_based_score_sc=rule_based_top["compatibility_score"],
+            assigned_arm=assigned_arm,
         )
         st.session_state.setdefault("search_history", [])
         st.session_state["search_history"].append({
