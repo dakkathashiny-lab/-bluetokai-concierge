@@ -1451,7 +1451,36 @@ if st.session_state["last_recommended_product"] and not st.session_state["conver
             f'style="border-radius:12px; border:1px solid #C97B3D33;">Loading…</iframe>',
             unsafe_allow_html=True,
         )
+        st.markdown(
+            """
+            <style>
+            @keyframes pulse-star-link {
+                0%, 100% { transform: scale(1); }
+                50%      { transform: scale(1.04); }
+            }
+            .star-jump-link {
+                display: block;
+                text-align: center;
+                background: linear-gradient(135deg, #3D6FB5, #2E5490);
+                color: white !important;
+                font-weight: 800;
+                font-size: 1.05rem;
+                padding: 0.9rem 1rem;
+                border-radius: 10px;
+                text-decoration: none;
+                margin: 0.75rem 0;
+                animation: pulse-star-link 1.5s ease-in-out infinite;
+            }
+            </style>
+            <a href="#star-rating-anchor" class="star-jump-link">
+                ⭐ Submitted the form? Tap here for the LAST step ⭐
+            </a>
+            """,
+            unsafe_allow_html=True,
+        )
         st.divider()
+
+st.markdown('<div id="star-rating-anchor"></div>', unsafe_allow_html=True)
 
 if st.session_state["last_recommended_product"] and not st.session_state["conversation_rated"]:
     # Star rating always shown, right below the form - tapping a star both
