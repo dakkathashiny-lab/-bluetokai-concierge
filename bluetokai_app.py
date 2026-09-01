@@ -1248,11 +1248,17 @@ def render_product_cards(product_rows, show_scroll_hint=True):
                 margin: 0.75rem 0;
                 animation: bounce-down 1.3s ease-in-out infinite;
             }
+            .scroll-down-hint a {
+                color: #C97B3D !important;
+                text-decoration: none;
+            }
             </style>
             <div class="scroll-down-hint">
-                <span style="font-size:0.95rem; font-weight:700; color:#C97B3D;">
-                    👇 Scroll down for quick feedback 👇
-                </span>
+                <a href="#feedback-section-anchor">
+                    <span style="font-size:0.95rem; font-weight:700;">
+                        👇 Tap here for quick feedback 👇
+                    </span>
+                </a>
             </div>
             """,
             unsafe_allow_html=True,
@@ -1365,6 +1371,8 @@ if past_searches:
 
 st.divider()
 
+st.markdown('<div id="feedback-section-anchor"></div>', unsafe_allow_html=True)
+
 if st.session_state["last_recommended_product"] and not st.session_state["conversation_rated"]:
     st.markdown(
         f"""
@@ -1438,7 +1446,7 @@ if st.session_state["last_recommended_product"] and not st.session_state["conver
             f"{st.session_state.get('session_id', '')}"
         )
         st.markdown(
-            f'<iframe src="{embed_form_url}" width="100%" height="600" '
+            f'<iframe src="{embed_form_url}" width="100%" height="420" '
             f'frameborder="0" marginheight="0" marginwidth="0" '
             f'style="border-radius:12px; border:1px solid #C97B3D33;">Loading…</iframe>',
             unsafe_allow_html=True,
