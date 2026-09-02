@@ -1446,6 +1446,14 @@ if st.session_state["last_recommended_product"] and not st.session_state["conver
             f"{st.session_state.get('session_id', '')}"
         )
         st.markdown(
+            """
+            <p style="text-align:center; font-size:0.85rem; color:#8A6D3B; font-weight:700; margin-bottom:0.4rem;">
+                👇 Scroll INSIDE the box below to see all questions, then submit 👇
+            </p>
+            """,
+            unsafe_allow_html=True,
+        )
+        st.markdown(
             f'<iframe src="{embed_form_url}" width="100%" height="520" '
             f'frameborder="0" marginheight="0" marginwidth="0" '
             f'style="border-radius:12px; border:1px solid #C97B3D33;">Loading…</iframe>',
