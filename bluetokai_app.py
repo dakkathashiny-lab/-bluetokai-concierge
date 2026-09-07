@@ -81,7 +81,6 @@ def append_row_to_gsheet(sheet_name, header_row, row_values):
 GOOGLE_FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSem3PmBTAEjlNH-VByzJbCh1BbZ-xAq6pSiVDYOC-v-VBE7nA/viewform"
 GOOGLE_FORM_SESSION_ENTRY_ID = "entry.934150347"
 LOG_FILE = "interaction_log.csv"
-RATING_LOG_FILE = "ratings_log.csv"
 SESSION_LOG_FILE = "session_log.csv"
 SESSION_LOG_COLUMNS = [
     "session_id", "timestamp_start", "timestamp_submit", "interaction_duration_sec",
@@ -670,24 +669,6 @@ def log_interaction(text, prefs, num_matches):
     )
 
 
-def log_rating(product_name, stars):
-    is_new = not os.path.exists(RATING_LOG_FILE)
-    try:
-        with open(RATING_LOG_FILE, "a", newline="", encoding="utf-8") as f:
-            writer = csv.writer(f)
-            if is_new:
-                writer.writerow(["timestamp", "recommended_product", "stars"])
-            writer.writerow([datetime.now().isoformat(timespec="seconds"), product_name, stars])
-    except OSError:
-        pass
-    # Persistent backup - survives Streamlit restarts (local CSV above does not)
-    append_row_to_gsheet(
-        "ratings_log",
-        ["timestamp", "recommended_product", "stars"],
-        [datetime.now().isoformat(timespec="seconds"), product_name, stars],
-    )
-
-
 def get_price_tier(price_inr):
     """Bins price into a simple ordinal tier for SPSS analysis. Thresholds are
     based on the actual spread of Price_INR in blue_tokai_products.csv."""
@@ -886,31 +867,6 @@ if query_params.get("gsheetdebug") == ADMIN_SECRET:
 if query_params.get("admin") == ADMIN_SECRET:
     st.title("☕ Blue Tokai Coffee Concierge — Admin Dashboard")
     st.caption("Hidden view for capstone data collection - not linked anywhere in the normal chat.")
-    st.divider()
-    st.subheader("⭐ Ratings")
-    if os.path.exists(RATING_LOG_FILE):
-        ratings_df = pd.read_csv(RATING_LOG_FILE)
-        if not ratings_df.empty:
-            col1, col2 = st.columns(2)
-            col1.metric("Total ratings", len(ratings_df))
-            col2.metric("Average stars", f"{ratings_df['stars'].mean():.1f} ⭐")
-            st.dataframe(ratings_df.sort_values("timestamp", ascending=False), use_container_width=True, hide_index=True)
-            st.download_button("Download ratings CSV", ratings_df.to_csv(index=False), "ratings_log.csv", "text/csv")
-            if st.button("🗑️ Clear all ratings", key="clear_ratings_btn"):
-                st.session_state["confirm_clear_ratings"] = True
-            if st.session_state.get("confirm_clear_ratings"):
-                st.warning("This permanently deletes all ratings data. Download a backup first if you want to keep it.")
-                cc1, cc2 = st.columns(2)
-                if cc1.button("Yes, delete all ratings", key="confirm_clear_ratings_btn"):
-                    os.remove(RATING_LOG_FILE)
-                    st.session_state["confirm_clear_ratings"] = False
-                    st.success("Ratings cleared. Starting fresh from now.")
-                    st.rerun()
-                if cc2.button("Cancel", key="cancel_clear_ratings_btn"):
-                    st.session_state["confirm_clear_ratings"] = False
-                    st.rerun()
-    else:
-        st.info("No ratings yet.")
     st.divider()
     st.subheader("💬 Interactions")
     if os.path.exists(LOG_FILE):
@@ -1458,25 +1414,10 @@ if st.session_state.get("result_source", "chat") == "chat" and len(st.session_st
 # (No divider shown here when the manual filter was the source, to avoid an
 # empty-looking gap with nothing in it.)
 if st.session_state.get("result_source", "chat") == "chat":
-    st.divider()
     render_latest_result()
     if st.session_state.get("scroll_to_latest"):
         st.session_state["scroll_to_latest"] = False
         trigger_scroll_to_result()
-
-# collapsible search history - positioned after the chat history
-history = st.session_state.get("search_history", [])
-past_searches = history[:-1] if len(history) > 1 else []
-if past_searches:
-    with st.expander(f"📜 Search History ({len(past_searches)} earlier search{'es' if len(past_searches) != 1 else ''})"):
-        for i, entry in enumerate(reversed(past_searches), start=1):
-            st.markdown(f"**{i}. You asked:** {entry['query']}")
-            st.markdown(entry["reply"])
-            if entry["products"] is not None and not entry["products"].empty:
-                render_product_cards(entry["products"], show_scroll_hint=False)
-            st.divider()
-
-st.divider()
 
 st.markdown('<div id="feedback-section-anchor"></div>', unsafe_allow_html=True)
 
@@ -1653,3 +1594,17 @@ elif st.session_state["conversation_rated"]:
             """,
             unsafe_allow_html=True,
         )
+
+# collapsible search history - now shown after the feedback section, so it
+# never sits between the recommendation and the feedback form/message.
+history = st.session_state.get("search_history", [])
+past_searches = history[:-1] if len(history) > 1 else []
+if past_searches:
+    st.divider()
+    with st.expander(f"📜 Search History ({len(past_searches)} earlier search{'es' if len(past_searches) != 1 else ''})"):
+        for i, entry in enumerate(reversed(past_searches), start=1):
+            st.markdown(f"**{i}. You asked:** {entry['query']}")
+            st.markdown(entry["reply"])
+            if entry["products"] is not None and not entry["products"].empty:
+                render_product_cards(entry["products"], show_scroll_hint=False)
+            st.divider()
