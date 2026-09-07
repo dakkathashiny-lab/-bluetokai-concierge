@@ -1528,13 +1528,6 @@ if st.session_state["last_recommended_product"] and not st.session_state["conver
             unsafe_allow_html=True,
         )
 
-        st.divider()
-        if st.button("✅ I've submitted the form", key="self_confirm_done"):
-            st.session_state["conversation_rated"] = True
-            st.session_state["just_rated"] = True
-            st.session_state["last_rating_stars"] = 5
-            st.rerun()
-
 elif st.session_state["conversation_rated"]:
     stars_given = st.session_state.get("last_rating_stars", 5)
     is_good_rating = stars_given >= 3
