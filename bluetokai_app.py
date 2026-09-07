@@ -17,26 +17,30 @@ from datetime import datetime
 # Google Sheet instead, which is permanent - exactly like your Google Form data.
 _gsheet_client = None
 _gsheet_ws_cache = {}
+_gsheet_last_error = None
 
 def get_gsheet_client():
     """Returns an authorized gspread client, or None if secrets aren't configured yet."""
-    global _gsheet_client
+    global _gsheet_client, _gsheet_last_error
     if _gsheet_client is not None:
         return _gsheet_client
     try:
         import gspread
         from google.oauth2.service_account import Credentials
         if "gcp_service_account" not in st.secrets:
+            _gsheet_last_error = "No 'gcp_service_account' section found in st.secrets."
             return None
         scopes = ["https://www.googleapis.com/auth/spreadsheets"]
         creds = Credentials.from_service_account_info(dict(st.secrets["gcp_service_account"]), scopes=scopes)
         _gsheet_client = gspread.authorize(creds)
         return _gsheet_client
-    except Exception:
+    except Exception as e:
+        _gsheet_last_error = f"get_gsheet_client failed: {type(e).__name__}: {e}"
         return None
 
 def get_gsheet_worksheet(sheet_name, header_row):
     """Gets (or creates) a worksheet tab by name inside the configured spreadsheet."""
+    global _gsheet_last_error
     if sheet_name in _gsheet_ws_cache:
         return _gsheet_ws_cache[sheet_name]
     client = get_gsheet_client()
@@ -45,6 +49,7 @@ def get_gsheet_worksheet(sheet_name, header_row):
     try:
         sheet_url_or_key = st.secrets.get("gsheet_key", None)
         if not sheet_url_or_key:
+            _gsheet_last_error = "No 'gsheet_key' found in st.secrets."
             return None
         spreadsheet = client.open_by_key(sheet_url_or_key)
         try:
@@ -54,18 +59,22 @@ def get_gsheet_worksheet(sheet_name, header_row):
             ws.append_row(header_row)
         _gsheet_ws_cache[sheet_name] = ws
         return ws
-    except Exception:
+    except Exception as e:
+        _gsheet_last_error = f"get_gsheet_worksheet failed: {type(e).__name__}: {e}"
         return None
 
 def append_row_to_gsheet(sheet_name, header_row, row_values):
     """Appends one row of data to a Google Sheet tab. Silently no-ops if not configured."""
+    global _gsheet_last_error
     ws = get_gsheet_worksheet(sheet_name, header_row)
     if ws is None:
         return False
     try:
         ws.append_row([str(v) if v is not None else "" for v in row_values])
+        _gsheet_last_error = None
         return True
-    except Exception:
+    except Exception as e:
+        _gsheet_last_error = f"append_row failed: {type(e).__name__}: {e}"
         return False
 
 # ---------- CONFIG ----------
@@ -853,6 +862,27 @@ try:
 except Exception:
     ADMIN_SECRET = "bluetokai2026"
 query_params = st.query_params
+
+if query_params.get("gsheetdebug") == ADMIN_SECRET:
+    st.title("🔧 Google Sheets Connection Diagnostic")
+    st.caption("Temporary debug view - shows the REAL error, if any, when trying to connect.")
+    st.divider()
+    ok = append_row_to_gsheet("diagnostic_test", ["timestamp", "test"], [datetime.now().isoformat(), "diagnostic ping"])
+    if ok:
+        st.success("✅ SUCCESS - a test row was written to a 'diagnostic_test' tab in your Google Sheet. Everything is working correctly!")
+    else:
+        st.error("❌ FAILED - could not write to Google Sheets.")
+        st.write("**Exact error message:**")
+        st.code(_gsheet_last_error or "No error captured - unexpected.")
+        st.write("**Checklist to review based on this error:**")
+        st.markdown("""
+        - Does the error mention **'gcp_service_account'** or **'gsheet_key'**? → Something is missing/misnamed in your Streamlit Secrets.
+        - Does the error mention **'PERMISSION_DENIED'** or **'403'**? → The Sheet wasn't actually shared with your service account email, or wasn't shared as Editor.
+        - Does the error mention **'NOT_FOUND'** or **'404'**? → The Sheet ID in `gsheet_key` doesn't match your actual Sheet's URL.
+        - Does the error mention **JSON / decode / padding**? → The `private_key` field got corrupted while copy-pasting into Secrets.
+        """)
+    st.stop()
+
 if query_params.get("admin") == ADMIN_SECRET:
     st.title("☕ Blue Tokai Coffee Concierge — Admin Dashboard")
     st.caption("Hidden view for capstone data collection - not linked anywhere in the normal chat.")
