@@ -11,6 +11,63 @@ import random
 import requests
 from datetime import datetime
 
+# ---------- GOOGLE SHEETS PERSISTENCE (survives Streamlit restarts) ----------
+# Streamlit Community Cloud wipes local files (like session_log.csv) every time
+# the app sleeps/restarts/redeploys. This writes the same data directly into a
+# Google Sheet instead, which is permanent - exactly like your Google Form data.
+_gsheet_client = None
+_gsheet_ws_cache = {}
+
+def get_gsheet_client():
+    """Returns an authorized gspread client, or None if secrets aren't configured yet."""
+    global _gsheet_client
+    if _gsheet_client is not None:
+        return _gsheet_client
+    try:
+        import gspread
+        from google.oauth2.service_account import Credentials
+        if "gcp_service_account" not in st.secrets:
+            return None
+        scopes = ["https://www.googleapis.com/auth/spreadsheets"]
+        creds = Credentials.from_service_account_info(dict(st.secrets["gcp_service_account"]), scopes=scopes)
+        _gsheet_client = gspread.authorize(creds)
+        return _gsheet_client
+    except Exception:
+        return None
+
+def get_gsheet_worksheet(sheet_name, header_row):
+    """Gets (or creates) a worksheet tab by name inside the configured spreadsheet."""
+    if sheet_name in _gsheet_ws_cache:
+        return _gsheet_ws_cache[sheet_name]
+    client = get_gsheet_client()
+    if client is None:
+        return None
+    try:
+        sheet_url_or_key = st.secrets.get("gsheet_key", None)
+        if not sheet_url_or_key:
+            return None
+        spreadsheet = client.open_by_key(sheet_url_or_key)
+        try:
+            ws = spreadsheet.worksheet(sheet_name)
+        except Exception:
+            ws = spreadsheet.add_worksheet(title=sheet_name, rows=1000, cols=max(len(header_row), 10))
+            ws.append_row(header_row)
+        _gsheet_ws_cache[sheet_name] = ws
+        return ws
+    except Exception:
+        return None
+
+def append_row_to_gsheet(sheet_name, header_row, row_values):
+    """Appends one row of data to a Google Sheet tab. Silently no-ops if not configured."""
+    ws = get_gsheet_worksheet(sheet_name, header_row)
+    if ws is None:
+        return False
+    try:
+        ws.append_row([str(v) if v is not None else "" for v in row_values])
+        return True
+    except Exception:
+        return False
+
 # ---------- CONFIG ----------
 GOOGLE_FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSem3PmBTAEjlNH-VByzJbCh1BbZ-xAq6pSiVDYOC-v-VBE7nA/viewform"
 GOOGLE_FORM_SESSION_ENTRY_ID = "entry.934150347"
@@ -596,6 +653,12 @@ def log_interaction(text, prefs, num_matches):
             writer.writerow([datetime.now().isoformat(timespec="seconds"), text, str(prefs), num_matches])
     except OSError:
         pass
+    # Persistent backup - survives Streamlit restarts (local CSV above does not)
+    append_row_to_gsheet(
+        "interaction_log",
+        ["timestamp", "message", "preferences", "num_matches"],
+        [datetime.now().isoformat(timespec="seconds"), text, str(prefs), num_matches],
+    )
 
 
 def log_rating(product_name, stars):
@@ -608,6 +671,12 @@ def log_rating(product_name, stars):
             writer.writerow([datetime.now().isoformat(timespec="seconds"), product_name, stars])
     except OSError:
         pass
+    # Persistent backup - survives Streamlit restarts (local CSV above does not)
+    append_row_to_gsheet(
+        "ratings_log",
+        ["timestamp", "recommended_product", "stars"],
+        [datetime.now().isoformat(timespec="seconds"), product_name, stars],
+    )
 
 
 def get_price_tier(price_inr):
@@ -712,6 +781,14 @@ def log_spss_session(source, prefs, top_row, num_alternatives, completed_flag=1,
             writer.writerow(row)
     except OSError:
         pass
+
+    # Persistent backup - THIS is the critical one (assigned_arm, compatibility
+    # scores, etc.) - survives Streamlit restarts, unlike the local CSV above.
+    append_row_to_gsheet(
+        "session_log",
+        SESSION_LOG_COLUMNS,
+        [row.get(col, "") for col in SESSION_LOG_COLUMNS],
+    )
 
 
 def process_message(text):
@@ -1454,7 +1531,7 @@ if st.session_state["last_recommended_product"] and not st.session_state["conver
             unsafe_allow_html=True,
         )
         st.markdown(
-            f'<iframe src="{embed_form_url}" width="100%" height="520" '
+            f'<iframe src="{embed_form_url}" width="100%" height="680" '
             f'frameborder="0" marginheight="0" marginwidth="0" '
             f'style="border-radius:12px; border:1px solid #C97B3D33;">Loading…</iframe>',
             unsafe_allow_html=True,
