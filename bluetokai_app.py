@@ -1493,9 +1493,15 @@ if st.session_state["last_recommended_product"] and not st.session_state["conver
         unsafe_allow_html=True,
     )
 
-    # The form always stays visible here, whether or not you've rated yet -
-    # so "scroll up to find the form" is always genuinely true.
     if GOOGLE_FORM_URL and "REPLACE_WITH" not in GOOGLE_FORM_URL:
+        # One single button opens the ENTIRE feedback experience (including the
+        # star/rating question, now built directly into the Google Form itself)
+        # in a new tab. No embedded iframe, no separate star widget to come
+        # back for - once they submit the form, they're completely done.
+        form_link_url = (
+            f"{GOOGLE_FORM_URL}?{GOOGLE_FORM_SESSION_ENTRY_ID}="
+            f"{st.session_state.get('session_id', '')}"
+        )
         st.markdown(
             """
             <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;700&display=swap" rel="stylesheet">
@@ -1535,6 +1541,19 @@ if st.session_state["last_recommended_product"] and not st.session_state["conver
                 margin-top: 0.15rem;
                 display: block;
             }
+            .open-form-btn {
+                display: block;
+                text-align: center;
+                background: linear-gradient(135deg, #D9432E, #C9762A);
+                color: white !important;
+                font-weight: 800;
+                font-size: 1.1rem;
+                padding: 1rem 1.2rem;
+                border-radius: 12px;
+                text-decoration: none;
+                margin: 0.6rem 0;
+                box-shadow: 0 4px 14px rgba(201,118,42,0.4);
+            }
             </style>
             <div class="feedback-pulse-box">
                 <span class="feedback-pulse-title">
@@ -1542,83 +1561,26 @@ if st.session_state["last_recommended_product"] and not st.session_state["conver
                     Just 1 Minute — Your Voice Matters!
                 </span>
                 <span class="feedback-pulse-body">
-                    Fill the quick form below ☕✨
+                    One quick form (opens in a new tab) — includes your star rating too ☕✨
                 </span>
             </div>
             """,
             unsafe_allow_html=True,
         )
-        embed_form_url = (
-            f"{GOOGLE_FORM_URL}?embedded=true&{GOOGLE_FORM_SESSION_ENTRY_ID}="
-            f"{st.session_state.get('session_id', '')}"
-        )
         st.markdown(
-            """
-            <p style="text-align:center; font-size:0.85rem; color:#8A6D3B; font-weight:700; margin-bottom:0.4rem;">
-                👇 Scroll INSIDE the box below to see all questions, then submit 👇
-            </p>
-            """,
+            f'<a href="{form_link_url}" target="_blank" class="open-form-btn">'
+            f'📝 Tap Here to Fill the Feedback Form ⭐</a>',
             unsafe_allow_html=True,
         )
-        st.markdown(
-            f'<iframe src="{embed_form_url}" width="100%" height="680" '
-            f'frameborder="0" marginheight="0" marginwidth="0" '
-            f'style="border-radius:12px; border:1px solid #C97B3D33;">Loading…</iframe>',
-            unsafe_allow_html=True,
-        )
-        st.markdown(
-            """
-            <style>
-            @keyframes pulse-star-link {
-                0%, 100% { transform: scale(1); }
-                50%      { transform: scale(1.04); }
-            }
-            .star-jump-link {
-                display: block;
-                text-align: center;
-                background: linear-gradient(135deg, #3D6FB5, #2E5490);
-                color: white !important;
-                font-weight: 800;
-                font-size: 1.05rem;
-                padding: 0.9rem 1rem;
-                border-radius: 10px;
-                text-decoration: none;
-                margin: 0.75rem 0;
-                animation: pulse-star-link 1.5s ease-in-out infinite;
-            }
-            </style>
-            <a href="#star-rating-anchor" class="star-jump-link">
-                ⭐ Submitted the form? Tap here for the LAST step ⭐
-            </a>
-            """,
-            unsafe_allow_html=True,
-        )
+        st.caption("Opens in a new tab — fill it there, including your star rating at the end. No need to come back here afterward!")
+
         st.divider()
-
-st.markdown('<div id="star-rating-anchor"></div>', unsafe_allow_html=True)
-
-if st.session_state["last_recommended_product"] and not st.session_state["conversation_rated"]:
-    # Star rating always shown, right below the form - tapping a star both
-    # logs the rating and finalizes this recommendation.
-    st.markdown(
-        """
-        <div style="background:linear-gradient(135deg,#3D6FB533,#3D6FB511);
-                    border:2px solid #3D6FB5; border-radius:10px;
-                    padding:0.8rem 1.1rem; margin:0.5rem 0;">
-            <span style="font-size:1.1rem; font-weight:800;">✅ Submitted the form above? One last step —</span><br>
-            <span style="font-size:1rem;">Please also tap a star below to rate this chat. <b>This part is separate from the form and still needed!</b> ⭐</span>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    star_cols = st.columns(5)
-    for star_n, scol in enumerate(star_cols, start=1):
-        if scol.button("⭐" * star_n, key=f"rate_{star_n}"):
-            log_rating(st.session_state["last_recommended_product"], star_n)
+        if st.button("✅ I've submitted the form", key="self_confirm_done"):
             st.session_state["conversation_rated"] = True
             st.session_state["just_rated"] = True
-            st.session_state["last_rating_stars"] = star_n
+            st.session_state["last_rating_stars"] = 5
             st.rerun()
+
 elif st.session_state["conversation_rated"]:
     stars_given = st.session_state.get("last_rating_stars", 5)
     is_good_rating = stars_given >= 3
