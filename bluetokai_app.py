@@ -1504,75 +1504,29 @@ if st.session_state["last_recommended_product"] and not st.session_state["conver
         )
         st.markdown(
             """
-            <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;700&display=swap" rel="stylesheet">
             <style>
-            @keyframes pulse-glow {
-                0%   { box-shadow: 0 0 0px 0px #ffffff00, 0 4px 16px rgba(0,0,0,0.15); transform: scale(1); }
-                50%  { box-shadow: 0 0 22px 6px #FFD37033, 0 4px 20px rgba(0,0,0,0.2); transform: scale(1.01); }
-                100% { box-shadow: 0 0 0px 0px #ffffff00, 0 4px 16px rgba(0,0,0,0.15); transform: scale(1); }
-            }
-            @keyframes bounce-icon {
-                0%, 100% { transform: translateY(0) rotate(0deg); }
-                50%      { transform: translateY(-6px) rotate(-8deg); }
-            }
-            .feedback-pulse-box {
-                font-family: 'Fredoka', sans-serif;
-                background: linear-gradient(135deg, #D9432E 0%, #C9762A 50%, #E8A23D 100%);
-                border-radius: 12px;
-                padding: 0.55rem 0.85rem;
-                margin-bottom: 0.5rem;
-                animation: pulse-glow 2.2s ease-in-out infinite;
-            }
-            .feedback-pulse-icon {
-                display: inline-block;
-                animation: bounce-icon 1.2s ease-in-out infinite;
-            }
-            .feedback-pulse-title {
-                font-size: 1rem;
-                font-weight: 700;
-                color: #FFFFFF;
-                text-shadow: 0 1px 3px rgba(0,0,0,0.25);
-                letter-spacing: 0.2px;
-            }
-            .feedback-pulse-body {
-                font-size: 0.8rem;
-                font-weight: 500;
-                color: #FFF6E9;
-                margin-top: 0.15rem;
-                display: block;
-            }
             .open-form-btn {
                 display: block;
                 text-align: center;
-                background: linear-gradient(135deg, #D9432E, #C9762A);
+                background: #2E9E4F;
                 color: white !important;
                 font-weight: 800;
-                font-size: 1.1rem;
+                font-size: 1.15rem;
                 padding: 1rem 1.2rem;
                 border-radius: 12px;
                 text-decoration: none;
                 margin: 0.6rem 0;
-                box-shadow: 0 4px 14px rgba(201,118,42,0.4);
+                box-shadow: 0 4px 14px rgba(46,158,79,0.4);
             }
             </style>
-            <div class="feedback-pulse-box">
-                <span class="feedback-pulse-title">
-                    <span class="feedback-pulse-icon">⏳</span>
-                    Just 1 Minute — Your Voice Matters!
-                </span>
-                <span class="feedback-pulse-body">
-                    One quick form (opens in a new tab) — includes your star rating too ☕✨
-                </span>
-            </div>
             """,
             unsafe_allow_html=True,
         )
         st.markdown(
             f'<a href="{form_link_url}" target="_blank" class="open-form-btn">'
-            f'📝 Tap Here to Fill the Feedback Form ⭐</a>',
+            f'📝 Tap Here to Fill the Google Form</a>',
             unsafe_allow_html=True,
         )
-        st.caption("Opens in a new tab — fill it there, including your star rating at the end. No need to come back here afterward!")
 
         st.divider()
         if st.button("✅ I've submitted the form", key="self_confirm_done"):
