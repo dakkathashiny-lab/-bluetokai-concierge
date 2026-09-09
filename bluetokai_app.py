@@ -102,7 +102,15 @@ def resync_local_csv_to_gsheet(local_csv_path, sheet_name, header_row, key_colum
     """Compares the local CSV backup against what's actually saved in Google
     Sheets, and pushes ONLY the rows that are missing (i.e. rows that were
     written locally but never made it to Sheets due to a connection failure).
+
+    Pushes missing rows in BATCHES (one API call per batch, via append_rows)
+    instead of one API call per row - Google Sheets enforces a strict "write
+    requests per minute per user" quota, and looping single append_row() calls
+    for many rows at once burns through that quota fast and triggers a 429
+    error. Batching keeps this to a small, predictable number of API calls.
+
     Returns (num_pushed, num_already_synced, error_message_or_None)."""
+    global _gsheet_last_error
     if not os.path.exists(local_csv_path):
         return 0, 0, "No local backup file found - nothing to check."
     try:
@@ -116,20 +124,41 @@ def resync_local_csv_to_gsheet(local_csv_path, sheet_name, header_row, key_colum
     if existing_keys is None:
         return 0, 0, _gsheet_last_error or "Couldn't read existing Google Sheet rows."
 
-    pushed, already_synced = 0, 0
+    already_synced = 0
+    missing_rows = []
     for _, row in local_df.iterrows():
         row_key = str(row.get(key_column_name, ""))
         if row_key in existing_keys:
             already_synced += 1
             continue
-        row_values = [row.get(col, "") for col in header_row]
-        ok = append_row_to_gsheet(sheet_name, header_row, row_values)
-        if ok:
-            pushed += 1
-            existing_keys.add(row_key)  # avoid re-pushing the same row twice in this same run
-        else:
-            return pushed, already_synced, _gsheet_last_error or "Push failed partway through - see error."
-    return pushed, already_synced, None
+        missing_rows.append([str(row.get(col, "")) for col in header_row])
+
+    if not missing_rows:
+        return 0, already_synced, None
+
+    ws = get_gsheet_worksheet(sheet_name, header_row)
+    if ws is None:
+        return 0, already_synced, _gsheet_last_error or "Couldn't open the Google Sheet tab."
+
+    BATCH_SIZE = 40  # comfortably under Google's per-minute write quota
+    PAUSE_BETWEEN_BATCHES_SEC = 3
+    pushed = 0
+    try:
+        for i in range(0, len(missing_rows), BATCH_SIZE):
+            chunk = missing_rows[i:i + BATCH_SIZE]
+            ws.append_rows(chunk, value_input_option="RAW")
+            pushed += len(chunk)
+            if i + BATCH_SIZE < len(missing_rows):
+                time.sleep(PAUSE_BETWEEN_BATCHES_SEC)
+        _gsheet_last_error = None
+        return pushed, already_synced, None
+    except Exception as e:
+        _gsheet_last_error = f"append_rows failed: {type(e).__name__}: {e}"
+        return pushed, already_synced, (
+            f"{_gsheet_last_error}  "
+            f"(Pushed {pushed} of {len(missing_rows)} before hitting this - "
+            f"safe to click the button again in a minute, it will only push what's still missing.)"
+        )
 
 # ---------- CONFIG ----------
 GOOGLE_FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSem3PmBTAEjlNH-VByzJbCh1BbZ-xAq6pSiVDYOC-v-VBE7nA/viewform"
