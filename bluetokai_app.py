@@ -70,7 +70,7 @@ def append_row_to_gsheet(sheet_name, header_row, row_values):
     if ws is None:
         return False
     try:
-        ws.append_row([str(v) if v is not None else "" for v in row_values])
+        ws.append_row([str(v) if v is not None else "" for v in row_values], value_input_option="RAW")
         _gsheet_last_error = None
         return True
     except Exception as e:
@@ -163,7 +163,7 @@ def resync_local_csv_to_gsheet(local_csv_path, sheet_name, header_row, key_colum
 # ---------- CONFIG ----------
 GOOGLE_FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSem3PmBTAEjlNH-VByzJbCh1BbZ-xAq6pSiVDYOC-v-VBE7nA/viewform"
 GOOGLE_FORM_SESSION_ENTRY_ID = "entry.934150347"
-LOG_FILE = "interaction_log.csv"
+LOG_FILE = "interaction_log_v2.csv"  # renamed on purpose - see log_interaction() below
 SESSION_LOG_FILE = "session_log.csv"
 SESSION_LOG_COLUMNS = [
     "session_id", "timestamp_start", "timestamp_submit", "interaction_duration_sec",
@@ -735,20 +735,25 @@ def build_reason_text(prefs):
 
 
 def log_interaction(text, prefs, num_matches):
+    interaction_id = str(uuid.uuid4())
+    timestamp = datetime.now().isoformat(timespec="seconds")
     is_new = not os.path.exists(LOG_FILE)
     try:
         with open(LOG_FILE, "a", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
             if is_new:
-                writer.writerow(["timestamp", "message", "preferences", "num_matches"])
-            writer.writerow([datetime.now().isoformat(timespec="seconds"), text, str(prefs), num_matches])
+                writer.writerow(["interaction_id", "timestamp", "message", "preferences", "num_matches"])
+            writer.writerow([interaction_id, timestamp, text, str(prefs), num_matches])
     except OSError:
         pass
-    # Persistent backup - survives Streamlit restarts (local CSV above does not)
+    # Persistent backup - survives Streamlit restarts (local CSV above does not).
+    # interaction_id is a stable random ID (not a date), so it can never get
+    # silently reformatted by Google Sheets and mismatch during a resync check
+    # the way a timestamp string sometimes can.
     append_row_to_gsheet(
         "interaction_log",
-        ["timestamp", "message", "preferences", "num_matches"],
-        [datetime.now().isoformat(timespec="seconds"), text, str(prefs), num_matches],
+        ["interaction_id", "timestamp", "message", "preferences", "num_matches"],
+        [interaction_id, timestamp, text, str(prefs), num_matches],
     )
 
 
@@ -1175,8 +1180,8 @@ if query_params.get("admin") == ADMIN_SECRET:
             with st.spinner("Comparing local interaction log against Google Sheets..."):
                 pushed, synced, err = resync_local_csv_to_gsheet(
                     LOG_FILE, "interaction_log",
-                    ["timestamp", "message", "preferences", "num_matches"],
-                    key_column_name="timestamp",
+                    ["interaction_id", "timestamp", "message", "preferences", "num_matches"],
+                    key_column_name="interaction_id",
                 )
             if err:
                 st.error(f"❌ Couldn't complete resync. Reason: {err}")
