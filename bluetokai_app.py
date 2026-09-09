@@ -781,9 +781,59 @@ def log_spss_session(source, prefs, top_row, num_alternatives, completed_flag=1,
     )
 
 
+# Meta/catalog questions ("how many products do you have") are NOT coffee
+# preferences, and must be intercepted before extract_preferences() / the
+# recommendation engine ever sees them - otherwise they get scored as a
+# neutral 50.0 match against every product and a coffee gets suggested anyway.
+CATALOG_COUNT_PATTERNS = [
+    "how many products", "how many coffees", "how many items",
+    "how many options", "how many varieties", "how many types",
+    "total products", "total coffees", "total items", "total options",
+    "number of products", "number of coffees", "number of items",
+    "products do you have", "coffees do you have", "products in your",
+    "products in stock", "products available", "size of your catalog",
+    "how big is your catalog", "how many blue tokai",
+]
+
+
+def is_catalog_count_question(text):
+    text_l = text.lower()
+    return any(p in text_l for p in CATALOG_COUNT_PATTERNS)
+
+
+def answer_catalog_count():
+    total = len(in_stock)
+    brand_counts = in_stock["Brand"].value_counts() if "Brand" in in_stock.columns else None
+    if brand_counts is not None and len(brand_counts) > 0:
+        top_brand = brand_counts.index[0]
+        top_brand_n = int(brand_counts.iloc[0])
+        return (
+            f"We currently have **{total} products** in stock in our catalog, "
+            f"including **{top_brand_n} from {top_brand}**. "
+            f"Want me to help you find one that fits what you're after?"
+        )
+    return (
+        f"We currently have **{total} products** in stock in our catalog. "
+        f"Want me to help you find one that fits what you're after?"
+    )
+
+
 def process_message(text):
     st.session_state.setdefault("messages", [])
     st.session_state["messages"].append(("user", text, None))
+
+    # Handle catalog meta-questions directly - skip the recommendation engine
+    # entirely so these never return an arbitrary "neutral score" coffee pick.
+    if is_catalog_count_question(text):
+        reply = answer_catalog_count()
+        st.session_state["conversation_rated"] = False
+        st.session_state["has_had_response"] = True
+        st.session_state["messages"].append(("assistant", reply, None))
+        st.session_state.setdefault("search_history", [])
+        st.session_state["search_history"].append({
+            "query": text, "reply": reply, "products": pd.DataFrame(),
+        })
+        return
 
     prefs = extract_preferences(text)
     rule_based_matches = get_recommendations(prefs, top_n=5)
