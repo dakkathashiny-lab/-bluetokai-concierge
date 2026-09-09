@@ -781,40 +781,89 @@ def log_spss_session(source, prefs, top_row, num_alternatives, completed_flag=1,
     )
 
 
-# Meta/catalog questions ("how many products do you have") are NOT coffee
-# preferences, and must be intercepted before extract_preferences() / the
-# recommendation engine ever sees them - otherwise they get scored as a
-# neutral 50.0 match against every product and a coffee gets suggested anyway.
-CATALOG_COUNT_PATTERNS = [
-    "how many products", "how many coffees", "how many items",
-    "how many options", "how many varieties", "how many types",
-    "total products", "total coffees", "total items", "total options",
-    "number of products", "number of coffees", "number of items",
-    "products do you have", "coffees do you have", "products in your",
-    "products in stock", "products available", "size of your catalog",
-    "how big is your catalog", "how many blue tokai",
+# Meta/catalog questions ("how many products do you have", "total products",
+# "how many are not available", etc.) are NOT coffee preferences, and must be
+# intercepted before extract_preferences() / the recommendation engine ever
+# sees them - otherwise they get scored as a neutral 50.0 match against every
+# product and a coffee gets suggested anyway.
+#
+# Using keyword-combination matching (not exact phrases) so it also catches
+# real-world phrasing variations like "how many product total and how many
+# are not available" - singular/plural, reordered, or combined questions.
+COUNT_TRIGGER_WORDS = [
+    "how many", "total number", "number of", "count of", "how much stock",
+    "how big is", "size of your", "how large is",
+]
+CATALOG_NOUN_WORDS = [
+    "product", "coffee", "item", "option", "variety", "varieties",
+    "catalog", "catalogue", "stock", "menu",
+]
+AVAILABILITY_WORDS = [
+    "not available", "unavailable", "sold out", "out of stock",
+    "in stock", "available",
 ]
 
 
 def is_catalog_count_question(text):
     text_l = text.lower()
-    return any(p in text_l for p in CATALOG_COUNT_PATTERNS)
+    has_count_trigger = any(t in text_l for t in COUNT_TRIGGER_WORDS)
+    has_catalog_noun = any(n in text_l for n in CATALOG_NOUN_WORDS)
+    # Also catch pure availability questions even without an explicit "how
+    # many" trigger, e.g. "what's sold out", "what is not available".
+    has_availability_ask = any(a in text_l for a in AVAILABILITY_WORDS)
+    return (has_count_trigger and has_catalog_noun) or (has_catalog_noun and has_availability_ask)
 
 
 def answer_catalog_count():
-    total = len(in_stock)
+    total = len(products)
+    in_stock_n = len(in_stock)
+    sold_out_n = total - in_stock_n
     brand_counts = in_stock["Brand"].value_counts() if "Brand" in in_stock.columns else None
+    brand_line = ""
     if brand_counts is not None and len(brand_counts) > 0:
         top_brand = brand_counts.index[0]
         top_brand_n = int(brand_counts.iloc[0])
-        return (
-            f"We currently have **{total} products** in stock in our catalog, "
-            f"including **{top_brand_n} from {top_brand}**. "
-            f"Want me to help you find one that fits what you're after?"
-        )
+        brand_line = f" including **{top_brand_n} from {top_brand}**"
     return (
-        f"We currently have **{total} products** in stock in our catalog. "
+        f"We have **{total} products** in our full catalog{brand_line}. "
+        f"Of those, **{in_stock_n} are currently in stock** and "
+        f"**{sold_out_n} are sold out / unavailable** right now. "
         f"Want me to help you find one that fits what you're after?"
+    )
+
+
+# A more specific question than "how many" - the person wants the actual
+# NAMES of what's currently unavailable, e.g. "which products are not
+# available", "what's sold out right now", "list unavailable items".
+WHICH_LIST_WORDS = [
+    "which", "what are", "what's", "whats", "list", "name the", "show me the",
+    "tell me the",
+]
+UNAVAILABLE_WORDS = [
+    "not available", "unavailable", "sold out", "out of stock",
+]
+
+
+def is_unavailable_list_question(text):
+    text_l = text.lower()
+    has_which = any(w in text_l for w in WHICH_LIST_WORDS)
+    has_unavailable = any(w in text_l for w in UNAVAILABLE_WORDS)
+    return has_which and has_unavailable
+
+
+def answer_unavailable_list():
+    sold_out_df = products[products["Availability"] != "In Stock"]
+    n = len(sold_out_df)
+    if n == 0:
+        return "Good news — everything in our catalog is currently in stock! Nothing is sold out right now."
+    names = sold_out_df["Product_Name"].tolist()
+    bullet_list = "\n".join(f"- {name}" for name in names)
+    return (
+        f"Right now, **{n} product{'s' if n != 1 else ''}** are sold out / not available:\n\n"
+        f"{bullet_list}\n\n"
+        f"These aren't gone for good — once they're back in stock, they'll show up here again "
+        f"and I'll be able to recommend them to you. Feel free to check back, or ask me for "
+        f"something similar from what's currently available!"
     )
 
 
@@ -824,6 +873,19 @@ def process_message(text):
 
     # Handle catalog meta-questions directly - skip the recommendation engine
     # entirely so these never return an arbitrary "neutral score" coffee pick.
+    # Check the more specific "which/what is unavailable" question FIRST,
+    # since it's a subset of the general count-question detection.
+    if is_unavailable_list_question(text):
+        reply = answer_unavailable_list()
+        st.session_state["conversation_rated"] = False
+        st.session_state["has_had_response"] = True
+        st.session_state["messages"].append(("assistant", reply, None))
+        st.session_state.setdefault("search_history", [])
+        st.session_state["search_history"].append({
+            "query": text, "reply": reply, "products": pd.DataFrame(),
+        })
+        return
+
     if is_catalog_count_question(text):
         reply = answer_catalog_count()
         st.session_state["conversation_rated"] = False
