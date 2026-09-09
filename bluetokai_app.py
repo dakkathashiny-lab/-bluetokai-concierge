@@ -77,6 +77,60 @@ def append_row_to_gsheet(sheet_name, header_row, row_values):
         _gsheet_last_error = f"append_row failed: {type(e).__name__}: {e}"
         return False
 
+
+def get_existing_keys_from_gsheet(sheet_name, header_row, key_column_name):
+    """Reads back everything already saved in a Google Sheet tab and returns
+    the set of values found in `key_column_name` (e.g. 'session_id'). Used to
+    figure out which local rows are MISSING from the sheet, so we only push
+    the ones that actually failed to save before - never duplicate rows that
+    already made it there successfully."""
+    global _gsheet_last_error
+    ws = get_gsheet_worksheet(sheet_name, header_row)
+    if ws is None:
+        return None
+    try:
+        records = ws.get_all_records()
+        if key_column_name not in (records[0].keys() if records else header_row):
+            return set()
+        return {str(r.get(key_column_name, "")) for r in records}
+    except Exception as e:
+        _gsheet_last_error = f"get_existing_keys_from_gsheet failed: {type(e).__name__}: {e}"
+        return None
+
+
+def resync_local_csv_to_gsheet(local_csv_path, sheet_name, header_row, key_column_name):
+    """Compares the local CSV backup against what's actually saved in Google
+    Sheets, and pushes ONLY the rows that are missing (i.e. rows that were
+    written locally but never made it to Sheets due to a connection failure).
+    Returns (num_pushed, num_already_synced, error_message_or_None)."""
+    if not os.path.exists(local_csv_path):
+        return 0, 0, "No local backup file found - nothing to check."
+    try:
+        local_df = pd.read_csv(local_csv_path, dtype=str).fillna("")
+    except Exception as e:
+        return 0, 0, f"Couldn't read local file: {e}"
+    if key_column_name not in local_df.columns:
+        return 0, 0, f"Local file has no '{key_column_name}' column to match against."
+
+    existing_keys = get_existing_keys_from_gsheet(sheet_name, header_row, key_column_name)
+    if existing_keys is None:
+        return 0, 0, _gsheet_last_error or "Couldn't read existing Google Sheet rows."
+
+    pushed, already_synced = 0, 0
+    for _, row in local_df.iterrows():
+        row_key = str(row.get(key_column_name, ""))
+        if row_key in existing_keys:
+            already_synced += 1
+            continue
+        row_values = [row.get(col, "") for col in header_row]
+        ok = append_row_to_gsheet(sheet_name, header_row, row_values)
+        if ok:
+            pushed += 1
+            existing_keys.add(row_key)  # avoid re-pushing the same row twice in this same run
+        else:
+            return pushed, already_synced, _gsheet_last_error or "Push failed partway through - see error."
+    return pushed, already_synced, None
+
 # ---------- CONFIG ----------
 GOOGLE_FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSem3PmBTAEjlNH-VByzJbCh1BbZ-xAq6pSiVDYOC-v-VBE7nA/viewform"
 GOOGLE_FORM_SESSION_ENTRY_ID = "entry.934150347"
@@ -1078,6 +1132,43 @@ if query_params.get("admin") == ADMIN_SECRET:
                     st.rerun()
     else:
         st.info("No session log data yet.")
+
+    st.divider()
+    st.subheader("🔁 Verify & Resync to Google Sheets")
+    st.caption(
+        "Compares your local backup files against what's actually saved in Google Sheets, "
+        "and pushes ONLY the rows that are missing (never duplicates rows that already synced). "
+        "Use this any time you're unsure whether everything actually uploaded."
+    )
+    resync_col1, resync_col2 = st.columns(2)
+    with resync_col1:
+        if st.button("🔎 Check & resync Interactions", key="resync_interactions_btn"):
+            with st.spinner("Comparing local interaction log against Google Sheets..."):
+                pushed, synced, err = resync_local_csv_to_gsheet(
+                    LOG_FILE, "interaction_log",
+                    ["timestamp", "message", "preferences", "num_matches"],
+                    key_column_name="timestamp",
+                )
+            if err:
+                st.error(f"❌ Couldn't complete resync. Reason: {err}")
+            elif pushed == 0:
+                st.success(f"✅ Everything is already synced. {synced} rows checked, none missing.")
+            else:
+                st.success(f"✅ Pushed {pushed} missing row(s) to Google Sheets. {synced} were already synced.")
+    with resync_col2:
+        if st.button("🔎 Check & resync SPSS Sessions", key="resync_sessions_btn"):
+            with st.spinner("Comparing local session log against Google Sheets..."):
+                pushed, synced, err = resync_local_csv_to_gsheet(
+                    SESSION_LOG_FILE, "session_log", SESSION_LOG_COLUMNS,
+                    key_column_name="session_id",
+                )
+            if err:
+                st.error(f"❌ Couldn't complete resync. Reason: {err}")
+            elif pushed == 0:
+                st.success(f"✅ Everything is already synced. {synced} rows checked, none missing.")
+            else:
+                st.success(f"✅ Pushed {pushed} missing row(s) to Google Sheets. {synced} were already synced.")
+
     st.stop()
 
 st.markdown('<div id="page-top-anchor"></div>', unsafe_allow_html=True)
