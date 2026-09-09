@@ -83,15 +83,20 @@ def get_existing_keys_from_gsheet(sheet_name, header_row, key_column_name):
     the set of values found in `key_column_name` (e.g. 'session_id'). Used to
     figure out which local rows are MISSING from the sheet, so we only push
     the ones that actually failed to save before - never duplicate rows that
-    already made it there successfully."""
+    already made it there successfully.
+
+    Uses expected_headers=header_row explicitly instead of letting gspread
+    auto-read row 1 of the sheet. Without this, leftover blank columns (e.g.
+    from Google Sheets' "Table" feature, or manual edits) can make row 1
+    contain multiple empty-string cells, which gspread refuses to treat as a
+    valid header ("header row contains duplicates: ['']") and the whole call
+    fails. Explicitly naming the headers we expect sidesteps that entirely."""
     global _gsheet_last_error
     ws = get_gsheet_worksheet(sheet_name, header_row)
     if ws is None:
         return None
     try:
-        records = ws.get_all_records()
-        if key_column_name not in (records[0].keys() if records else header_row):
-            return set()
+        records = ws.get_all_records(expected_headers=header_row)
         return {str(r.get(key_column_name, "")) for r in records}
     except Exception as e:
         _gsheet_last_error = f"get_existing_keys_from_gsheet failed: {type(e).__name__}: {e}"
